@@ -17,6 +17,8 @@ The service accepts arbitrary HTTP(S) targets and has no authentication. Keep it
 
 Run the acceptance tests described in [tools/flaresolverr-contract](../tools/flaresolverr-contract/README.md). A local fixture pass does not verify CAPTCHA solving, the site's anti-bot checks, or the plugin's independent browser/direct POST paths. See [the investigation](../docs/flaresolverr-bridge-investigation.md) for the upstream choices and outstanding work.
 
+See the [upstream sources and synchronization guide](../docs/UPSTREAMS.md) for dependency versions, licenses, and update procedures.
+
 ## Container build and use
 
 The same image has two modes: `MOLI_MODE=bridge` and `MOLI_MODE=cdp`. The supplied

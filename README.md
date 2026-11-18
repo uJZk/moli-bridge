@@ -70,6 +70,8 @@ Playwright CDP gateway. Both roles use one image, deployed as separate
 containers. The default Compose configuration binds both endpoints to localhost.
 See the [bridge guide](flaresolverr-bridge/README.md) for setup, supported CDP
 parameters, testing, and the current compatibility and isolation limits.
+The [upstream sources and synchronization guide](docs/UPSTREAMS.md) records
+the code and dependencies in use and how to update and verify them.
 
 The bridge has passed local fixture checks, but a complete MoviePilot sign-in
 and protected-site challenge have not been verified. The experimental image
