@@ -4,6 +4,7 @@ This repository is a Rust workspace; `Cargo.toml` is the authoritative list of
 members. `moli` contains the CLI, `moli-core` the browser core, and
 `moli-protocol-server` and `moli-protocol-cdp` the automation server and CDP
 implementation. See `README.md` for the supported interfaces and CLI usage.
+Project work items are tracked in `docs/Todo.md`.
 
 For changes to CDP client behavior, consult `moli-cdp-smoke/README.md` for the
 Playwright and raw-CDP integration suite. Keep narrow protocol contract tests
