@@ -22,3 +22,6 @@ __pycache__
 /moli-benchmark/moli-benchmark/
 
 node_modules
+
+# Downloaded and verified inputs for the experimental bridge image.
+/.container-assets/

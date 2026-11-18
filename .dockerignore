@@ -1,0 +1,7 @@
+**
+!flaresolverr-bridge/
+!flaresolverr-bridge/**
+flaresolverr-bridge/node_modules/
+!.container-assets/
+!.container-assets/**
+**/__pycache__/

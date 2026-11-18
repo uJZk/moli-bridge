@@ -63,6 +63,19 @@ Use it through the CLI, CDP, WebDriver Classic, or WebDriver BiDi.
 
 Moli supports Linux, macOS, and Windows.
 
+## Experimental FlareSolverr bridge
+
+This fork includes an experimental FlareSolverr-compatible API and a separate
+Playwright CDP gateway. Both roles use one image, deployed as separate
+containers. The default Compose configuration binds both endpoints to localhost.
+See the [bridge guide](flaresolverr-bridge/README.md) for setup, supported CDP
+parameters, testing, and the current compatibility and isolation limits.
+
+The bridge has passed local fixture checks, but a complete MoviePilot sign-in
+and protected-site challenge have not been verified. The container workflow is
+configured to publish an experimental `edge` image only after both architecture
+smoke tests pass; availability must be checked in GitHub Actions.
+
 ## Quick start
 
 Give this prompt to your AI agent:

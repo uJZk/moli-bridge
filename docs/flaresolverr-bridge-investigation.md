@@ -1,0 +1,21 @@
+# FlareSolverr bridge investigation
+
+## Compatibility target
+
+The required integration is [MoviePilot sehuatangsignin](https://github.com/Vivitoto/MoviePilot-Plugins/tree/7c7d1036423f3e7350f307c7ad87bd6d2044712a/plugins.v3/sehuatangsignin), examined at commit `7c7d1036423f3e7350f307c7ad87bd6d2044712a`. The default site is `https://sehuatang.net`, configurable by the plugin. Its `captcha_server.py` uses `sessions.create` with `maxTimeout` and an optional proxy object; `sessions.destroy`; and `request.get` with a session, URL, timeout, cookies, optional headers and proxy. It requires an `ok` response and a session ID, consumes `solution.response`, `solution.cookies`, `solution.status` and `solution.userAgent`, and merges returned cookies into its account jar. Its POST helper does **not** use `request.post`: it first uses a separately launched browser for same-origin fetch, then falls back to direct Python HTTP. Other plugin flows also launch and retain their own browser sessions. The bridge cannot by itself make those separate execution paths use Moli or establish end-to-end compatibility.
+
+The executable checks in [tools/flaresolverr-contract](../tools/flaresolverr-contract/README.md) exercise the actual plugin API helpers and a local proxy. Site access, the plugin's independent browser paths and a complete sign-in still need real integration tests.
+
+## Upstream candidate
+
+[TRAWL](https://github.com/germondai/trawl) was examined at commit `38e4b21de1061ea531cf711fec5efa5ac46ef9ee` (2026-11-15). Its license is AGPL-3.0; a distributed or network-accessible modified TRAWL must be reviewed for the applicable source and notice obligations. This repository is MIT/Apache-2.0; do not copy or incorporate TRAWL code without retaining the license and deciding how the resulting distribution meets those obligations. No TRAWL code has been incorporated here. The prototype reuses `playwright-core` and separately vendors FlareSolverr challenge detection patterns with the upstream MIT license.
+
+At that revision `apps/api/src/routes/v1.ts` implements create/list/destroy, returns `session`, and maps GET/POST, cookies, headers, timeouts and proxy settings through its FlareSolverr adapter. Its own tests cover lifecycle and cookies. Unknown sessions are implicitly created by requests; destroying an unknown session returns an error. Its session implementation uses browser contexts and binds the proxy when a session is created. The response currently sets solution headers to an empty object. These are upstream observations, not Moli compatibility claims.
+
+TRAWL's `packages/browser/src/pool.ts` launches Camoufox through `camoufox-js`; fresh contexts, Firefox preferences, proxy configuration and challenge solvers depend on that environment. For example, some evaluation uses Camoufox's `mw:` prefix. Replacing only the launch call with Playwright `connectOverCDP` would not establish equivalent behavior. A prototype must verify context lifecycle, cookie/POST/header handling, request proxy isolation and each required challenge path against Moli before selecting a reuse strategy. Keep any adaptation as a small, version-pinned upstream patch or contribution rather than a wholesale fork if feasible.
+
+## Isolation and deployment gate
+
+The externally reachable Playwright service and the bridge backend must use independent Moli processes, control endpoints and resources; endpoint separation alone is insufficient. The Compose configuration uses separate containers and networks and specifies resource limits. Local AMD64 checks exercised both modes and restart recovery; closing an external CDP browser did not remove an active bridge session. The local rootless Docker daemon reports `CgroupDriver=none`, so resource-limit enforcement and exhaustion isolation are not verified. Test those boundaries on the target host before claiming isolation.
+
+The bridge prototype has passed local fixture and plugin-helper checks, including an HTTP proxy, against Moli 1.1.26. A direct request to the default site failed in this environment before a page was retrieved; no challenge-solving or complete sign-in success is established. ARM64 build/runtime checks and successful image publication remain dependent on the GitHub Actions workflow. The image uses the pinned official Moli 1.1.26 binary and does not compile the fork's source.

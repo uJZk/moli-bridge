@@ -1,0 +1,19 @@
+{
+  "name": "moli-flaresolverr-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT OR Apache-2.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "cdp": "node cdp-gateway.mjs",
+    "test": "node --test *.test.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "1.58.0",
+    "ws": "8.23.0"
+  }
+}
