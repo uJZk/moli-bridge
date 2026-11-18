@@ -2,7 +2,7 @@
 # Host ports bind to loopback: expose them only through an authenticated perimeter.
 services:
   bridge:
-    image: ${MOLI_BRIDGE_IMAGE:-ghcr.io/ujzk/moli-bridge:edge}
+    image: ${MOLI_BRIDGE_IMAGE:-ghcr.io/ujzk/moli-bridge:latest}
     build:
       context: ..
       dockerfile: flaresolverr-bridge/Dockerfile
@@ -22,7 +22,7 @@ services:
     pids_limit: 256
     restart: unless-stopped
   cdp:
-    image: ${MOLI_BRIDGE_IMAGE:-ghcr.io/ujzk/moli-bridge:edge}
+    image: ${MOLI_BRIDGE_IMAGE:-ghcr.io/ujzk/moli-bridge:latest}
     environment:
       MOLI_MODE: cdp
       CDP_MAX_BROWSERS: ${CDP_MAX_BROWSERS:-4}

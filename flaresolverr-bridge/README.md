@@ -55,10 +55,11 @@ service and repeats the checks. Sessions are in memory and are lost on restart.
 runtime enforcement; accepting a limit in Compose is not proof it is enforced.
 
 The `Experimental container` GitHub Actions workflow builds and smoke-tests
-AMD64 and ARM64 images before publishing `ghcr.io/ujzk/moli-bridge:edge` and a
+AMD64 and ARM64 images before publishing `ghcr.io/ujzk/moli-bridge:latest` and a
 commit-specific `sha-<commit>` tag. The ARM64 test uses QEMU. Publication depends
 on a successful workflow run and registry permissions; no stable release is
-implied by the `edge` tag.
+implied by the `latest` tag. Pulling `ghcr.io/ujzk/moli-bridge` without an
+explicit tag selects `latest`.
 
 ## Experimental CDP query gateway
 

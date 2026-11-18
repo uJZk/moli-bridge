@@ -73,8 +73,9 @@ parameters, testing, and the current compatibility and isolation limits.
 
 The bridge has passed local fixture checks, but a complete MoviePilot sign-in
 and protected-site challenge have not been verified. The experimental image
-`ghcr.io/ujzk/moli-bridge:edge` has been published for Linux AMD64 and ARM64;
-the release workflow tests both architectures before publishing.
+`ghcr.io/ujzk/moli-bridge:latest` targets Linux AMD64 and ARM64; the release
+workflow tests both architectures before publishing. Omitting the image tag
+selects `latest` by default.
 
 ## Quick start
 
