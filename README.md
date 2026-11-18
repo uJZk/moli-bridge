@@ -72,9 +72,9 @@ See the [bridge guide](flaresolverr-bridge/README.md) for setup, supported CDP
 parameters, testing, and the current compatibility and isolation limits.
 
 The bridge has passed local fixture checks, but a complete MoviePilot sign-in
-and protected-site challenge have not been verified. The container workflow is
-configured to publish an experimental `edge` image only after both architecture
-smoke tests pass; availability must be checked in GitHub Actions.
+and protected-site challenge have not been verified. The experimental image
+`ghcr.io/ujzk/moli-bridge:edge` has been published for Linux AMD64 and ARM64;
+the release workflow tests both architectures before publishing.
 
 ## Quick start
 
