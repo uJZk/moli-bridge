@@ -1,0 +1,114 @@
+--- a/lib/utils/request-rewriter/fetch.ts
++++ b/lib/utils/request-rewriter/fetch.ts
+@@ -3,13 +3,14 @@
+ import type { HeaderGeneratorOptions } from 'header-generator';
+ import { tryGetContext } from 'hono/context-storage';
+ import { RateLimiterMemory, RateLimiterQueue } from 'rate-limiter-flexible';
+-import type { Agent, Dispatcher, RequestInfo, RequestInit } from 'undici';
++import type { Agent, Dispatcher, RequestInfo, RequestInit, Response as UndiciResponse } from 'undici';
+ import undici, { Request } from 'undici';
+ 
+ import { config } from '@/config';
+ import { generatedHeaders as HEADER_LIST, generateHeaders } from '@/utils/header-generator';
+ import { waitForHostRateLimit } from '@/utils/host-rate-limit';
+ import logger from '@/utils/logger';
++import fetchWithPlaywrightRetry from '@/utils/playwright-fetch';
+ import proxy from '@/utils/proxy';
+ import limitResponseSize from '@/utils/request-rewriter/limit-response-size';
+ import { publicLookup, publicOnly as publicOnlyInterceptor } from '@/utils/request-rewriter/public-only';
+@@ -191,16 +192,19 @@
+     await removeToken();
+     await waitForHostRateLimit(request.url, config.requestRateLimits, request.signal);
+ 
+-    if (interceptors.length > 0) {
+-        return limitResponseSize(
+-            await undici.fetch(request, {
+-                ...options,
+-                dispatcher: (options.dispatcher ?? init?.dispatcher ?? undici.getGlobalDispatcher()).compose(...interceptors),
+-            }),
+-            init?.maxResponseSize
+-        );
+-    }
+-    return limitResponseSize(await undici.fetch(request, options), init?.maxResponseSize);
++    const fetchOptions = interceptors.length > 0
++        ? { ...options, dispatcher: (options.dispatcher ?? init?.dispatcher ?? undici.getGlobalDispatcher()).compose(...interceptors) }
++        : options;
++    const nativeFetch = (next: Request) => undici.fetch(next.redirect === request.redirect ? next : new Request(next, { redirect: request.redirect }), fetchOptions);
++    // Playwright replay cannot enforce the caller's dispatcher, transport and response restrictions.
++    // Keep those requests on undici. The retry helper itself only targets specific upstream APIs.
++    const canReplay = !!config.playwrightCDPEndpoint && !init?.publicOnly && !init?.dispatcher && !init?.minVersion && init?.allowH2 !== false && !init?.credentialHeaders?.length && init?.maxResponseSize === undefined;
++    // The helper also runs in Workers and is typed against Web fetch; Node uses undici's
++    // compatible runtime objects, whose TypeScript declarations differ from DOM types.
++    const response = canReplay
++        ? ((await fetchWithPlaywrightRetry(request as unknown as globalThis.Request, nativeFetch as unknown as (request: globalThis.Request) => Promise<globalThis.Response>)) as unknown as UndiciResponse)
++        : await nativeFetch(request);
++    return limitResponseSize(response, init?.maxResponseSize);
+ };
+ 
+ export default wrappedFetch;
+--- a/lib/utils/playwright-fetch.ts
++++ b/lib/utils/playwright-fetch.ts
+@@ -218,8 +218,10 @@
+     request.signal.addEventListener('abort', stopBody, { once: true });
+     const bodyPromise = request.method === 'POST' ? readSmallForm(replay, bodyController.signal) : Promise.resolve(undefined);
+     try {
+-        // These API endpoints must not forward credentials or form bodies to a redirect.
+-        const response = await nativeFetch(new Request(request, { redirect: 'manual' }));
++        // The Worker handles redirects separately; the Node wrapper preserves its original mode.
++        // Node's global Request can be replaced after the undici request was created.
++        const RequestConstructor = request.constructor as typeof Request;
++        const response = await nativeFetch(new RequestConstructor(request, { redirect: 'manual' }));
+         if (request.signal.aborted) {
+             throw abortError();
+         }
+--- /dev/null
++++ b/lib/utils/request-rewriter/fetch.moli-retry.test.ts
+@@ -0,0 +1,48 @@
++import undici, { Request } from 'undici';
++import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
++
++import { config } from '@/config';
++import fetchWithPlaywrightRetry from '@/utils/playwright-fetch';
++import wrappedFetch from './fetch';
++
++vi.mock('@/utils/playwright-fetch', () => ({
++    default: vi.fn((request, nativeFetch) => nativeFetch(new Request(request, { redirect: 'manual' }))),
++}));
++
++describe('Moli Node retry gate', () => {
++    const originalEndpoint = config.playwrightCDPEndpoint;
++    const retry = vi.mocked(fetchWithPlaywrightRetry);
++    beforeEach(() => {
++        config.playwrightCDPEndpoint = 'http://127.0.0.1:9222';
++        vi.spyOn(undici, 'fetch').mockImplementation(async () => new undici.Response('ok'));
++        retry.mockClear();
++    });
++    afterEach(() => {
++        config.playwrightCDPEndpoint = originalEndpoint;
++        vi.restoreAllMocks();
++    });
++    test('uses the retry helper and preserves the original redirect mode', async () => {
++        await wrappedFetch('https://example.com/');
++        expect(retry).toHaveBeenCalledOnce();
++        expect(vi.mocked(undici.fetch).mock.calls[0][0]).toHaveProperty('redirect', 'follow');
++        await wrappedFetch('https://example.com/', { redirect: 'error' });
++        expect(vi.mocked(undici.fetch).mock.calls[1][0]).toHaveProperty('redirect', 'error');
++    });
++    test('does not enable Node replay without a CDP endpoint', async () => {
++        config.playwrightCDPEndpoint = '';
++        await wrappedFetch('https://example.com/');
++        expect(retry).not.toHaveBeenCalled();
++    });
++    test.each([
++        ['publicOnly', { publicOnly: true }],
++        ['dispatcher', { dispatcher: new undici.Agent() }],
++        ['TLS minimum', { minVersion: 'TLSv1.2' }],
++        ['HTTP/1 restriction', { allowH2: false }],
++        ['credential headers', { credentialHeaders: ['x-auth-token'] }],
++        ['response size override', { maxResponseSize: 1024 }],
++    ])('does not replay requests with %s', async (_label, init) => {
++        await wrappedFetch('https://example.com/', init as never);
++        expect(retry).not.toHaveBeenCalled();
++        expect(undici.fetch).toHaveBeenCalledOnce();
++    });
++});

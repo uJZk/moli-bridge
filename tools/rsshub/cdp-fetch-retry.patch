@@ -1,0 +1,64 @@
+diff --git a/lib/utils/playwright-fetch.test.ts b/lib/utils/playwright-fetch.test.ts
+index 5a36bc9..775e6a0 100644
+--- a/lib/utils/playwright-fetch.test.ts
++++ b/lib/utils/playwright-fetch.test.ts
+@@ -8,7 +8,7 @@ import type { PausedRequest } from './playwright-fetch';
+ import fetchWithPlaywrightRetry from './playwright-fetch';
+ 
+ const { getPage } = vi.hoisted(() => ({ getPage: vi.fn() }));
+-const { playwrightWSEndpoint, requestTimeout } = config;
++const { playwrightWSEndpoint, playwrightCDPEndpoint, requestTimeout } = config;
+ let warn: MockInstance<typeof logger.warn>;
+ 
+ vi.mock('@/utils/playwright', () => ({ getPlaywrightPage: getPage }));
+@@ -67,6 +67,7 @@ function oauthRequest(body = form) {
+ 
+ beforeEach(() => {
+     config.playwrightWSEndpoint = 'wss://browser.test/playwright?token=endpoint-fixture';
++    config.playwrightCDPEndpoint = undefined;
+     config.requestTimeout = 30000;
+     getPage.mockReset();
+     warn = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+@@ -76,6 +77,7 @@ afterEach(() => {
+     vi.useRealTimers();
+     warn.mockRestore();
+     config.playwrightWSEndpoint = playwrightWSEndpoint;
++    config.playwrightCDPEndpoint = playwrightCDPEndpoint;
+     config.requestTimeout = requestTimeout;
+ });
+ 
+@@ -155,6 +157,21 @@ describe('targeted Playwright fetch retry', () => {
+         expect(instance.destroy).toHaveBeenCalledTimes(1);
+     });
+ 
++    it('replays an eligible request when only a CDP endpoint is configured', async () => {
++        config.playwrightWSEndpoint = undefined;
++        config.playwrightCDPEndpoint = 'http://browser.test:9222';
++        const { session, instance } = makeBrowser(biliUrl);
++        const request = new Request(biliUrl);
++        const native = vi.fn(() => Promise.resolve(new Response('denied', { status: 412 })));
++
++        const response = await fetchWithPlaywrightRetry(request, native);
++
++        expect(response.status).toBe(200);
++        expect(await response.json()).toEqual({ items: [{ id: 1 }] });
++        expect(session.send.mock.calls.some(([method]) => method === 'Fetch.continueRequest')).toBe(true);
++        expect(instance.destroy).toHaveBeenCalledTimes(1);
++    });
++
+     it('captures a small OAuth form before native fetch consumes it', async () => {
+         const { session, instance } = makeBrowser(oauthUrl, '{"access_token":"fixture"}');
+         const request = oauthRequest();
+diff --git a/lib/utils/playwright-fetch.ts b/lib/utils/playwright-fetch.ts
+index 958d3dd..971d0ea 100644
+--- a/lib/utils/playwright-fetch.ts
++++ b/lib/utils/playwright-fetch.ts
+@@ -206,7 +206,7 @@ async function replayRequest(request: Request, signal: AbortSignal, body?: Uint8
+ }
+ 
+ export default async function fetchWithPlaywrightRetry(request: Request, nativeFetch: (request: Request) => Promise<Response>): Promise<Response> {
+-    const status = config.playwrightWSEndpoint ? retryStatus(request) : undefined;
++    const status = config.playwrightWSEndpoint || config.playwrightCDPEndpoint ? retryStatus(request) : undefined;
+     if (status === undefined) {
+         return nativeFetch(request);
+     }

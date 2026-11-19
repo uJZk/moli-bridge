@@ -62,6 +62,24 @@ use crate::util::{
     utf16_previous_scalar_boundary, utf16_scalar_boundary_at_or_after, utf16_units,
 };
 
+fn focused_keyboard_target(runtime: &PageScriptHost) -> Option<DomHandle> {
+    let active = runtime
+        .active_element_handle()
+        .or_else(|| runtime.document_focus_fallback_handle())?;
+    let dom = runtime.dom_host();
+    if (dom.is_html_element_named(active, "iframe") || dom.is_html_element_named(active, "frame"))
+        && let Some(document) = runtime
+            .child_browsing_context_document_handle(active)
+            .filter(|document| runtime.document_is_fully_active(*document))
+    {
+        return dom
+            .document_body_handle_for_document(document)
+            .or_else(|| dom.document_element_handle_for_document(document))
+            .or(Some(active));
+    }
+    Some(active)
+}
+
 fn related_target_value<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     handle: Option<DomHandle>,
@@ -2628,10 +2646,7 @@ impl ScriptVm {
             Rc::clone(&self._context_host),
             CurrentInputEvent::keyboard(key, modifiers),
         );
-        let handle = self
-            .document_runtime
-            .active_element_handle()
-            .or_else(|| self.document_runtime.document_focus_fallback_handle());
+        let handle = focused_keyboard_target(&self._context_host.borrow());
         let Some(handle) = handle else {
             return Ok(input_dispatch_outcome(false));
         };
@@ -2673,10 +2688,7 @@ impl ScriptVm {
                 // Like Blink's KeyboardEventManager, resolve focus again after
                 // keydown listeners before targeting the character event.
                 let runtime = unsafe { &*runtime_ptr };
-                let Some(handle) = runtime
-                    .active_element_handle()
-                    .or_else(|| runtime.document_focus_fallback_handle())
-                else {
+                let Some(handle) = focused_keyboard_target(runtime) else {
                     return Ok(input_dispatch_outcome(false));
                 };
                 let Some(keypress) = construct_keyboard_event(

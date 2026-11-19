@@ -1,6 +1,50 @@
 use super::*;
 
 #[test]
+fn keyboard_tab_navigates_into_and_out_of_a_child_frame() {
+    let mut vm = new_storage_html_test_vm("https://focus-frame-tab.test/");
+    vm.eval(
+        r#"
+        document.body.innerHTML = '<button id="before">before</button><iframe id="frame"></iframe><button id="after">after</button>';
+        globalThis.frame = document.getElementById('frame');
+        frame.contentDocument.body.innerHTML = '<button id="first">first</button><button id="second">second</button>';
+        frame.contentDocument.getElementById('second').addEventListener('click', () => globalThis.clicked = true);
+        document.getElementById('before').focus();
+        'ready'
+        "#,
+    )
+    .expect("prepare child-frame focus fixture");
+    materialize_single_child_default_realm_for_test(&mut vm, "Tab focus child realm");
+
+    let active = |vm: &mut ScriptVm| {
+        vm.eval(
+            r#"document.activeElement === frame ? 'frame:' + frame.contentDocument.activeElement.id : document.activeElement.id"#,
+        )
+        .unwrap()
+    };
+    for expected in ["frame:first", "frame:second", "after"] {
+        vm.dispatch_key_event("keydown", "Tab", "Tab", "", 0, false, false)
+            .unwrap();
+        assert_eq!(active(&mut vm), expected);
+        vm.dispatch_key_event("keyup", "Tab", "Tab", "", 0, false, false)
+            .unwrap();
+    }
+    vm.dispatch_key_event("keydown", "Tab", "Tab", "", 8, false, false)
+        .unwrap();
+    assert_eq!(active(&mut vm), "frame:second");
+    vm.dispatch_key_event("keyup", "Tab", "Tab", "", 8, false, false)
+        .unwrap();
+    vm.dispatch_key_event("keydown", " ", "Space", "", 0, false, false)
+        .unwrap();
+    vm.dispatch_key_event("keyup", " ", "Space", "", 0, false, false)
+        .unwrap();
+    assert_eq!(
+        vm.eval("String(globalThis.clicked === true)").unwrap(),
+        "true"
+    );
+}
+
+#[test]
 fn editing_focus_initializes_selection_before_events_and_preserves_existing_ranges() {
     let mut vm = new_storage_html_test_vm("https://example.com/");
     let result = vm.eval(r#"(() => {

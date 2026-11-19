@@ -21,11 +21,10 @@ or changing its linker and native-library settings.
 
 ## Architecture constraint
 
-Any future FlareSolverr bridge must isolate its Moli instance and control plane
-from external Playwright clients, including resource isolation sufficient to
-prevent those clients from disrupting the bridge. Verify the isolation with
-concurrent clients and destructive control operations; this is a requirement,
-not a claim that the bridge or isolation is implemented.
+The user chose a single-container deployment for the FlareSolverr bridge and
+external CDP gateway. Each still launches its own Moli processes, but the
+container shares a network, PID namespace and resource limits. Do not claim
+resource or control-plane isolation between the two endpoints.
 
 ## Required checks
 

@@ -93,7 +93,9 @@ export function parseProfile(params) {
   if (profile.proxy) {
     let url;
     try { url = new URL(profile.proxy); } catch { throw new Error('Invalid proxy'); }
-    if (!['http:', 'https:', 'socks4:', 'socks5:'].includes(url.protocol) || !url.hostname || url.pathname !== '/' || url.search || url.hash) throw new Error('Invalid proxy');
+    if (url.protocol === 'socks5h:') url.protocol = 'socks5:';
+    if (!['http:', 'https:', 'socks4:', 'socks5:'].includes(url.protocol) || !url.hostname || !['', '/'].includes(url.pathname) || url.search || url.hash) throw new Error('Invalid proxy');
+    if (!url.pathname) url.pathname = '/';
     profile.proxy = url.href;
   }
   if (geometry.some(key => key in profile)) {

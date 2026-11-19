@@ -20,6 +20,16 @@ for arch in amd64 arm64; do
   fi
   printf '%s  %s\n' "$checksum" "$archive" | sha256sum -c -
 done
+if [ -n "${MOLI_SOURCE_BINARY:-}" ]; then
+  test -x "$MOLI_SOURCE_BINARY" || { echo 'MOLI_SOURCE_BINARY must name an executable AMD64 Linux Moli binary.' >&2; exit 1; }
+  cp "$MOLI_SOURCE_BINARY" "$stage/moli-source-amd64"
+  chmod 755 "$stage/moli-source-amd64"
+fi
+if [ -n "${MOLI_SOURCE_ARM64_BINARY:-}" ]; then
+  test -x "$MOLI_SOURCE_ARM64_BINARY" || { echo 'MOLI_SOURCE_ARM64_BINARY must name an executable ARM64 Linux Moli binary.' >&2; exit 1; }
+  cp "$MOLI_SOURCE_ARM64_BINARY" "$stage/moli-source-arm64"
+  chmod 755 "$stage/moli-source-arm64"
+fi
 rm -rf "$root/.container-assets"
 mv "$stage" "$root/.container-assets"
 trap - EXIT HUP INT TERM

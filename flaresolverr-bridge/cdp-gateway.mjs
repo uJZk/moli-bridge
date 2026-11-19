@@ -1,37 +1,44 @@
-// Experimental standalone CDP gateway. Run in an isolation boundary separate
-// from the FlareSolverr bridge; see README.md.
+// Experimental CDP gateway. In the default single-container deployment it
+// shares resources and a network namespace with the bridge; see README.md.
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import WebSocket, { WebSocketServer } from 'ws';
 import { parseProfile } from './cdp-profile.mjs';
+import { translateLaunchParams } from './rsshub-launch.mjs';
 import { listeningAddress } from './moli-listen.mjs';
+import { processLimit } from './process-limit.mjs';
 
 const host = process.env.CDP_HOST ?? '127.0.0.1';
 const port = Number(process.env.CDP_PORT ?? 9222);
 const moli = process.env.MOLI_BIN ?? 'moli';
-const capacity = Number(process.env.CDP_MAX_BROWSERS ?? 8);
+const capacity = processLimit(process.env.CDP_MAX_BROWSERS, 'CDP_MAX_BROWSERS');
 const entries = new Map();
 const platforms = { windows: ['Win32', 'Windows NT 10.0; Win64; x64', 'Windows'], linux: ['Linux x86_64', 'X11; Linux x86_64', 'Linux'], macos: ['MacIntel', 'Macintosh; Intel Mac OS X 10_15_7', 'macOS'] };
 function close(entry) {
   if (entry.closed) return;
   entry.closed = true;
-  entries.delete(entry.token);
   clearTimeout(entry.timer);
   entry.cancelPending?.();
   entry.client?.terminate();
   entry.upstream?.terminate();
-  if (entry.child && entry.child.exitCode === null && entry.child.signalCode === null) {
-    entry.child.kill('SIGTERM');
-    const timer = setTimeout(() => entry.child.kill('SIGKILL'), 2000);
+  if (entry.child && entry.child.pid !== undefined && entry.child.exitCode === null && entry.child.signalCode === null) {
+    // A terminating process still consumes resources; retain its capacity slot
+    // until it actually exits, even when a client has already disconnected.
+    const child = entry.child;
+    const timer = setTimeout(() => child.kill('SIGKILL'), 2000);
     timer.unref();
-    entry.child.once('exit', () => clearTimeout(timer));
-  }
+    child.once('exit', () => { clearTimeout(timer); entries.delete(entry.token); });
+    child.kill('SIGTERM');
+  } else entries.delete(entry.token);
 }
-async function start(profile) {
+async function start(profile, signal) {
   if (entries.size >= capacity) throw new Error('Browser capacity reached');
   const entry = { token: randomUUID(), profile, closed: false };
   entries.set(entry.token, entry);
+  const abort = () => close(entry);
+  if (signal?.aborted) { close(entry); throw new Error('Connection closed'); }
+  signal?.addEventListener('abort', abort, { once: true });
   const args = ['serve', '--host', '127.0.0.1', '--port', '0'];
   if (profile.layout !== false) args.push('--layout');
   const resourceFlags = [['load-images', '--image'], ['load-fonts', '--font'], ['load-audio', '--audio'], ['load-video', '--video'], ['load-media', '--media'], ['load-text-tracks', '--text-track']];
@@ -41,12 +48,12 @@ async function start(profile) {
   if (profile.subframes === false) args.push('--disable-subframes');
   if (profile.proxy) args.push('--http-proxy', profile.proxy, '--http-no-proxy', profile['proxy-bypass'] ?? '');
   else if (profile['proxy-bypass']) args.push('--http-no-proxy', profile['proxy-bypass']);
-  const child = spawn(moli, args, {
-    env: { ...process.env, RUST_LOG: 'info', ...(profile.timezone ? { TZ: profile.timezone } : {}) }, stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  entry.child = child;
-  child.once('exit', () => close(entry));
   try {
+    const child = spawn(moli, args, {
+      env: { ...process.env, RUST_LOG: 'info', ...(profile.timezone ? { TZ: profile.timezone } : {}) }, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    entry.child = child;
+    child.once('exit', () => close(entry));
     const address = await new Promise((resolve, reject) => {
       let output = '';
       const timer = setTimeout(() => reject(new Error('Moli startup timed out')), 10000);
@@ -68,6 +75,7 @@ async function start(profile) {
     entry.timer.unref();
     return entry;
   } catch (error) { close(entry); throw error; }
+  finally { signal?.removeEventListener('abort', abort); }
 }
 function uaSettings(profile, version) {
   if (!['locale', 'platform', 'brand', 'user-agent', 'accept-language', 'platform-version', 'architecture', 'bitness', 'model', 'browser-version', 'wow64', 'form-factors', 'ua-brands', 'ua-full-version-list'].some(key => key in profile)) return undefined;
@@ -301,25 +309,59 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (req.method !== 'GET' || !['/json/version', '/json/version/'].includes(url.pathname)) { res.writeHead(404).end(); return; }
+  const controller = new AbortController();
+  const disconnected = () => { if (!res.writableEnded) controller.abort(); };
+  res.once('close', disconnected);
   try {
-    const profile = parseProfile(url.searchParams);
-    const entry = await start(profile);
     const authority = req.headers.host;
-    if (!authority || /[\s/@\\]/.test(authority)) { close(entry); throw new Error('Invalid Host'); }
+    if (!authority || /[\s/@\\]/.test(authority)) throw new Error('Invalid Host');
+    const profile = parseProfile(translateLaunchParams(url.searchParams));
+    const entry = await start(profile, controller.signal);
+    if (controller.signal.aborted || res.destroyed) { close(entry); return; }
     const result = { ...entry.version, webSocketDebuggerUrl: `ws://${authority}/devtools/browser/${entry.token}` };
     res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     res.end(JSON.stringify(result));
   } catch (error) {
-    res.writeHead(400, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ error: error.message }));
-  }
+    if (!res.destroyed && !res.writableEnded) {
+      res.writeHead(400, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message }));
+    }
+  } finally { res.removeListener('close', disconnected); }
 });
-server.on('upgrade', (req, socket, head) => {
-  const match = req.url?.match(/^\/devtools\/browser\/([0-9a-f-]+)$/);
-  const entry = match && entries.get(match[1]);
-  if (!entry || entry.client || entry.closed) { socket.destroy(); return; }
-  clearTimeout(entry.timer);
-  ws.handleUpgrade(req, socket, head, client => relay(entry, client));
+server.on('upgrade', async (req, socket, head) => {
+  let url;
+  try { url = new URL(req.url, 'http://localhost'); } catch { socket.destroy(); return; }
+  const match = url.pathname.match(/^\/devtools\/browser\/([0-9a-f-]+)$/);
+  if (match) {
+    const entry = !url.search && entries.get(match[1]);
+    if (!entry || entry.client || entry.closed) { socket.destroy(); return; }
+    clearTimeout(entry.timer);
+    ws.handleUpgrade(req, socket, head, client => relay(entry, client));
+    return;
+  }
+  if (!['/', '/chromium'].includes(url.pathname)) { socket.destroy(); return; }
+  socket.on('error', () => {});
+  const controller = new AbortController();
+  const disconnected = () => controller.abort();
+  socket.once('close', disconnected);
+  socket.once('end', disconnected);
+  // Consume the socket while the backend starts so a disconnected client releases its slot.
+  socket.resume();
+  let entry;
+  try {
+    const profile = parseProfile(translateLaunchParams(url.searchParams));
+    entry = await start(profile, controller.signal);
+    socket.removeListener('close', disconnected);
+    socket.removeListener('end', disconnected);
+    if (socket.destroyed || controller.signal.aborted) { close(entry); return; }
+    clearTimeout(entry.timer);
+    ws.handleUpgrade(req, socket, head, client => relay(entry, client));
+  } catch (error) {
+    socket.removeListener('close', disconnected);
+    socket.removeListener('end', disconnected);
+    if (entry) close(entry);
+    if (!socket.destroyed) socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
+  }
 });
 server.listen(port, host, () => console.log(`CDP gateway listening on ${host}:${port}`));
 function shutdown() {

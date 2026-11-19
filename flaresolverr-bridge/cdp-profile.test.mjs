@@ -29,3 +29,16 @@ test('normalizes inputs without dropping explicit false', () => {
   assert.deepEqual(p.touchSettings, { enabled: true, maxTouchPoints: 1 });
   assert.deepEqual(p.mediaSettings, { features: [{ name: 'prefers-color-scheme', value: 'dark' }] });
 });
+test('accepts SOCKS proxy URLs with or without a trailing slash, while rejecting paths', () => {
+  for (const scheme of ['socks4', 'socks5']) {
+    for (const suffix of ['', '/']) {
+      const params = new URLSearchParams({ proxy: `${scheme}://127.0.0.1:1080${suffix}` });
+      assert.equal(parseProfile(params).proxy, `${scheme}://127.0.0.1:1080/`);
+    }
+    assert.throws(() => parseProfile(new URLSearchParams({ proxy: `${scheme}://127.0.0.1:1080/path` })));
+  }
+});
+test('normalizes the SOCKS5 remote-DNS alias', () => {
+  const params = new URLSearchParams({ proxy: 'socks5h://user:p%2540@127.0.0.1:1080' });
+  assert.equal(parseProfile(params).proxy, 'socks5://user:p%2540@127.0.0.1:1080/');
+});

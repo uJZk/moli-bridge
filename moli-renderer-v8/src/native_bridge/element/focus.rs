@@ -811,6 +811,53 @@ fn collect_sequential_focus_entries(
         return;
     };
 
+    if element.is_html_element("iframe") || element.is_html_element("frame") {
+        if !is_focusable(runtime, handle)
+            || focused_chain_requires_async_blur(runtime, handle)
+            // Replaced elements such as frames do not generate a box for
+            // display: contents and therefore cannot be reached by Tab.
+            || style_property_value(runtime, handle, StyleMode::Computed, "display")
+                .eq_ignore_ascii_case("contents")
+            || matches!(
+                style_property_value(runtime, handle, StyleMode::Computed, "visibility")
+                    .to_ascii_lowercase()
+                    .as_str(),
+                "hidden" | "collapse"
+            )
+        {
+            return;
+        }
+        let tab_index = element.explicit_tab_index().unwrap_or(0);
+        let active_in_frame = active == Some(handle)
+            || active
+                .and_then(|node| runtime.dom_host().owner_document_handle(node))
+                .is_some_and(|document| {
+                    runtime.child_browsing_context_host_is_ancestor_of_document(handle, document)
+                });
+        if tab_index < 0 && !active_in_frame {
+            return;
+        }
+        let mut handles = runtime
+            .child_browsing_context_document_handle(handle)
+            .filter(|document| runtime.document_is_fully_active(*document))
+            .map(|document| {
+                sequential_focus_order_for_children(
+                    runtime,
+                    runtime.dom_host().child_handles(document).collect(),
+                    active,
+                )
+            })
+            .unwrap_or_default();
+        // A frame without focusable descendants remains a focus stop. When
+        // its owner was focused explicitly, retain it as the current position
+        // so Tab enters the child scope rather than jumping to the page start.
+        if handles.is_empty() || active == Some(handle) {
+            handles.insert(0, handle);
+        }
+        push_focus_entry_with_tab_index(tab_index.max(0), handles, entries, order);
+        return;
+    }
+
     if element.is_html_element("slot") {
         let Some(tab_index) = slot_focus_scope_tab_index(runtime, handle) else {
             return;

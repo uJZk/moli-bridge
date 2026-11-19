@@ -1,0 +1,26 @@
+--- a/lib/utils/proxy/index.ts
++++ b/lib/utils/proxy/index.ts
+@@ -27,14 +27,19 @@
+         });
+     }
+     if (uri.startsWith('socks')) {
+-        return new ProxyAgent({
+-            // undici only accepts socks5: and socks:, and its SOCKS5 client already lets the proxy resolve host names
+-            uri: uri.replace(/^socks5h:/, 'socks5:'),
++        // ProxyAgent forwards URL-encoded userinfo to its SOCKS5 client as explicit
++        // credentials. Decode it once so reserved characters match the proxy password.
++        const proxyUrl = new URL(uri.replace(/^socks5h:/, 'socks5:'));
++        const options = {
++            uri: proxyUrl.href,
++            username: proxyUrl.username ? decodeURIComponent(proxyUrl.username) : undefined,
++            password: proxyUrl.password ? decodeURIComponent(proxyUrl.password) : undefined,
+             requestTls: {
+                 ALPNProtocols: ['h2', 'http/1.1'],
+                 minVersion,
+             },
+-        });
++        };
++        return new ProxyAgent(options);
+     }
+     return null;
+ };

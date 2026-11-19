@@ -6,22 +6,28 @@
 
 | 上游 | 当前来源 / 版本 | 在本项目中的用途 | 许可及记录位置 |
 | --- | --- | --- | --- |
-| [Moli](https://github.com/lexmount/moli) | 仓库内保留 Moli Rust 工作区；容器另行下载官方 `v1.1.26` 二进制，标签指向 `c80617869d971d23304a52d8b39f51ee677571b4` | 提供浏览器、CDP 和网络能力 | Apache-2.0 OR MIT；参见根目录的 `LICENSE-APACHE`、`LICENSE-MIT`、`license-metadata.json` 和 `licenses/`。镜像还保留所下载发行包内的许可与 NOTICE 文件 |
+| [Moli](https://github.com/lexmount/moli) | 发布镜像的 AMD64 和 ARM64 均从当前仓库源码构建；官方 `v1.1.26` 归档用于本地回退和许可材料，标签指向 `c80617869d971d23304a52d8b39f51ee677571b4` | 提供浏览器、CDP 和网络能力 | Apache-2.0 OR MIT；参见根目录的 `LICENSE-APACHE`、`LICENSE-MIT`、`license-metadata.json` 和 `licenses/`。镜像还保留所下载发行包内的许可与 NOTICE 文件 |
 | [Playwright](https://github.com/microsoft/playwright) | npm `playwright-core` **1.58.0** | 桥接与 CDP 网关作为 CDP 客户端连接 Moli | Apache-2.0；见 npm 包的 LICENSE 和 `flaresolverr-bridge/package-lock.json` |
+| [linkedom](https://github.com/WebReflection/linkedom) | npm `linkedom` **0.18.15** | 解析挑战页面 HTML，筛除非活动内容 | ISC；见 npm 包的 LICENSE 与锁文件；其传递依赖按各自许可分发 |
 | [ws](https://github.com/websockets/ws) | npm `ws` **8.23.0** | CDP 网关 WebSocket 转发 | MIT；见 npm 包的 LICENSE 和 `flaresolverr-bridge/package-lock.json` |
-| [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) | `cc2224b21e31c09a713eb25690a8e8dcdf50d8d8` 的 `src/flaresolverr_service.py` | 仅移植挑战／拒绝访问的标题和选择器到 `flaresolverr-bridge/upstream/challenges.mjs` | MIT；保留了 `flaresolverr-bridge/upstream/FlareSolverr-LICENSE`。本项目没有引入上游完整服务或挑战求解器 |
+| [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) | `cc2224b21e31c09a713eb25690a8e8dcdf50d8d8` 的 `src/flaresolverr_service.py` | 移植挑战／拒绝访问的标题和选择器、键盘／按钮验证动作及 Turnstile 令牌提取流程到 `flaresolverr-bridge/upstream/` | MIT；保留了 `flaresolverr-bridge/upstream/FlareSolverr-LICENSE`。本项目没有引入上游完整服务；验证动作仅是部分适配 |
+| [TRAWL](https://github.com/germondai/trawl) | `38e4b21de1061ea531cf711fec5efa5ac46ef9ee` | 适配请求预算、Cloudflare 标题、响应头及受限错误地址识别、AWS WAF 响应头和受限脚本识别、DataDome 拦截响应头及受限拒绝页识别、挑战后稳定性检查、受限 clearance Cookie 恢复、受限挑战 iframe 复选框交互及受限 POST 重放保护 | AGPL-3.0；见 `flaresolverr-bridge/upstream/TRAWL-LICENSE`、`TRAWL-NOTICE.md` |
 | [Node.js Docker 官方镜像](https://github.com/nodejs/docker-node) | `node:22-bookworm`、`node:22-bookworm-slim` | 作为构建阶段和运行基础镜像 | Node.js 和其中各软件包分别适用其许可；当前标签没有固定镜像摘要，重建时内容可能变化 |
 
 镜像构建还从完整 Node/Debian 镜像复制 fontconfig、FreeType、Expat、libpng、Brotli、bzip2 运行库，以及字体和 CA 证书。它们的版本取决于构建时解析到的基础镜像；更新基础镜像时应检查实际软件包版本及其许可和通知文件。Moli Rust 工作区还有大量第三方 crate，**完整依赖不是上表的枚举范围**：以根目录 `Cargo.lock` 和各 crate 的 `Cargo.toml` 为准，并核对发行包的许可材料。可用 `cargo metadata --locked --format-version 1` 生成包含依赖版本、来源和许可字段的机器可读清单。
 
-两个容易混淆的参考来源：
+其他参考来源与许可说明：
 
 - [MoviePilot sehuatangsignin](https://github.com/Vivitoto/MoviePilot-Plugins/tree/7c7d1036423f3e7350f307c7ad87bd6d2044712a/plugins.v3/sehuatangsignin) 固定在 `7c7d1036423f3e7350f307c7ad87bd6d2044712a`，仅作为**必须兼容的目标插件及测试输入**；测试时下载其源码，未将其作为运行依赖打包。
-- [TRAWL](https://github.com/germondai/trawl) 曾在 `38e4b21de1061ea531cf711fec5efa5ac46ef9ee` 被评估，**没有引入其代码或依赖**。其 AGPL-3.0 许可和复用障碍记录在[兼容性调查](flaresolverr-bridge-investigation.md)；若未来决定引入，须先重新检查版本、适配方式和许可义务。
+- TRAWL 代码已按上述固定版本移植；桥接服务按 AGPL-3.0-only 标记。网络运行或分发时需满足 AGPL 对相应源码的提供要求；运行中的源码应与实际部署版本一致。仓库内 Moli 等其他组件保留各自许可。更多适配限制见[兼容性调查](flaresolverr-bridge-investigation.md)。
+
+Jackett 集成检查基于 `ffe6cd64391787612967a2cd28850970720d9fe3` 和其依赖的 FlareSolverrSharp 4.0.0（MIT）。测试从 NuGet 恢复该包，未将其打包进桥接镜像；见 [Jackett clearance 测试](../tools/flaresolverr-contract/README.md#jackett-clearance-handoff)。另有针对 FlareSolverrSharp 源码 `86027526c27cc32ff4f035535e16dd7c85763dea` 的 [MIT 可选补丁](../tools/jackett/README.md)，本地构建独立版本的包以测试 DataDome 交接，并完成固定版 Jackett 服务器编译与隔离启动；这些检查不会修改用户已有的 Jackett 安装。
+
+RSSHub 兼容性检查基于 `8f71938d4b9b032cab5712788d5ca8f4f327917c` 及其使用的 `patchright` 1.64.3。该版本的目标 API 重试原本仅由 Worker 请求路径调用，并仅由 WS 配置启用；[可选补丁](../tools/rsshub/README.md)允许 CDP 配置启用此逻辑，并另行接入普通 Node 服务，还提供 Moli 网关的认证代理补丁及 Node SOCKS5 认证修复。已在无外网夹具中运行完整 RSSHub 服务的 UPS 路由和 Bilibili 412 后重试；RSSHub 本身没有打包进本项目，且补丁不会自动更改用户已有的 RSSHub 服务。
 
 ## 更新 Moli：源码与容器分别处理
 
-**更新源码仓库不会自动更新镜像里的 Moli。** 当前镜像使用 `scripts/prepare-bridge-container.sh` 下载并校验的官方发行包，Dockerfile 不编译工作区源码。反之，升级容器发行包也不会自动合并上游源码。
+发布流程先分别构建当前工作区的 AMD64 和 ARM64 Moli，再通过 `MOLI_SOURCE_BINARY` 和 `MOLI_SOURCE_ARM64_BINARY` 将其装入对应镜像。本地准备步骤若未指定某架构的源码二进制，该架构会使用 `scripts/prepare-bridge-container.sh` 校验的官方发行包。升级容器发行包不会自动合并上游源码。
 
 ### 同步本仓库的 Moli 源码
 
@@ -59,7 +65,7 @@ cargo nextest run --no-fail-fast
    MOLI_BRIDGE_IMAGE=moli-bridge:local ./scripts/smoke-bridge-container.sh
    ```
 
-4. 运行下文的插件与 CDP 契约检查。另需检查 AMD64 和 ARM64 的运行情况、完整许可材料与目标站点；本地只验证一种架构时不要推断另一种也通过。`.github/workflows/container.yml` 在发布 `latest` 前分别构建并测试两种架构，ARM64 测试使用 QEMU；检查实际 Actions 结果和已发布的镜像清单。
+4. 运行下文的插件与 CDP 契约检查，并核对许可材料与目标站点。当前发布流程只对 AMD64 运行冒烟测试，ARM64 从源码构建但未做本次运行验证；检查实际 Actions 结果和已发布的镜像清单。
 
 准备脚本使用被忽略的 `.container-assets/`，每次运行会重新生成该目录。可按[容器指南](../flaresolverr-bridge/README.md#container-build-and-use)设置 `MOLI_RELEASE_CACHE_DIR`，但缓存中的归档仍必须通过固定哈希校验。
 
@@ -78,7 +84,7 @@ git clone https://github.com/FlareSolverr/FlareSolverr.git /tmp/moli-flaresolver
 git -C /tmp/moli-flaresolverr-upstream diff cc2224b21e31c09a713eb25690a8e8dcdf50d8d8 HEAD -- src/flaresolverr_service.py LICENSE
 ```
 
-有选择地更新 `flaresolverr-bridge/upstream/challenges.mjs`，将文件头中的来源提交改为实际审查的提交，并保留或按上游变更更新 `FlareSolverr-LICENSE` 和许可说明。运行桥接契约中的挑战／拒绝访问测试，并对目标站点实测；规则匹配通过不意味着挑战已解决。
+有选择地更新 `flaresolverr-bridge/upstream/challenges.mjs` 和 `verify.mjs`，将文件头中的来源提交改为实际审查的提交，并保留或按上游变更更新 `FlareSolverr-LICENSE` 和许可说明。运行桥接契约中的挑战／拒绝访问测试，并对目标站点实测；规则匹配通过不意味着挑战已解决。
 
 ## 重新核对 MoviePilot 插件
 
@@ -99,7 +105,7 @@ sha256sum /tmp/moli-moviepilot-captcha.py
 
 1. 启动**用于测试**的桥接与独立 CDP 网关。按[契约测试说明](../tools/flaresolverr-contract/README.md)运行实际 MoviePilot 辅助函数、会话、Cookie、GET/POST、错误、超时及代理检查；代理测试需显式启用 `--test-proxy` 并使用桥接能访问的地址，跳过不算通过。
 2. 在 `flaresolverr-bridge/` 运行 `npm test`，再按契约测试说明对可丢弃的网关运行 `check-cdp-profile.mjs` 和 `check-cdp-gateway.mjs`；检查空值、多个并发客户端、页面与 Worker、导航和设置覆盖。必要时运行 `moli-cdp-smoke` 中受影响的场景。协议测试本身不能证明服务间资源隔离。
-3. 构建镜像并运行 `scripts/smoke-bridge-container.sh`，检查两个角色的健康状态、实际请求与重启恢复。Compose 中进程、网络和资源限制必须在目标部署环境实测；还需并发、破坏性控制及资源耗尽／恢复测试。当前环境曾报告 `CgroupDriver=none`，不能将配置值当作资源限制已生效的证据。
-4. 按正常发布流程更新文档与待办。推送影响镜像的变更到 `main` 会触发 `.github/workflows/container.yml`，在两架构冒烟测试通过后推送 `ghcr.io/ujzk/moli-bridge:latest` 和 `sha-<commit>`。检查实际运行状态与远程镜像清单，再报告发布结果；当前完整 MoviePilot 签到和受保护站点挑战仍需单独验证。
+3. 构建镜像并运行 `scripts/smoke-bridge-container.sh`，检查单容器内两个入口的健康状态、实际请求与重启恢复。两个入口共享容器资源和网络，不声称资源隔离。
+4. 按正常发布流程更新文档与待办。推送影响镜像的变更到 `main` 会触发 `.github/workflows/container.yml`，在 AMD64 单容器冒烟测试通过后推送多架构 `ghcr.io/ujzk/moli-bridge:latest`。检查实际运行状态与远程镜像清单，再报告发布结果；当前完整 MoviePilot 签到和受保护站点挑战仍需单独验证。
 
 如果更新 GitHub Actions，本仓库的工作流使用固定提交 SHA；应核对官方仓库标签、变更和权限后同时更新 SHA 与版本注释。基础镜像当前是浮动标签，更新前后要审查解析到的摘要、架构和系统库，而不是假设标签内容不变。

@@ -1,0 +1,32 @@
+diff --git a/lib/routes/ups/track.ts b/lib/routes/ups/track.ts
+--- a/lib/routes/ups/track.ts
++++ b/lib/routes/ups/track.ts
+@@ -43,6 +43,27 @@ async function handler(ctx) {
+         await page.waitForSelector(viewDetailsButton);
+         await page.click(viewDetailsButton);
+ 
+-        await page.waitForSelector('tr[id^="stApp_activitydetails_row"]');
++        await page.waitForFunction(() => {
++            const rows = Array.from(document.querySelectorAll('tr[id^="stApp_activitydetails_row"]'));
++            if (!rows.length || !rows.every((row, index) => row.querySelector(`[id="stApp_milestoneActivityLocation${index}"]`)?.textContent?.trim())) {
++                return false;
++            }
++            for (let node: Element | null = rows[0]; node; node = node.parentElement) {
++                const style = getComputedStyle(node);
++                if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse') {
++                    return false;
++                }
++            }
++            return true;
++        });
++        // Moli 1.1.26 can retain an older layout after rows are inserted.
++        // A one-pixel CDP capture publishes current layout without saving an image.
++        const layoutSession = await page.context().newCDPSession(page);
++        try {
++            await layoutSession.send('Page.captureScreenshot', { format: 'png', clip: { x: 0, y: 0, width: 1, height: 1, scale: 1 } });
++        } finally {
++            await layoutSession.detach();
++        }
++        await page.waitForSelector('tr[id^="stApp_activitydetails_row"]');
+ 
+         const content = await page.content();

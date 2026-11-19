@@ -1,43 +1,23 @@
-# Both roles use the same image but have separate PID, network and resource boundaries.
-# Host ports bind to loopback: expose them only through an authenticated perimeter.
+# Both endpoints run in one container. Publish ports only on a trusted interface.
 services:
-  bridge:
+  moli:
     image: ${MOLI_BRIDGE_IMAGE:-ghcr.io/ujzk/moli-bridge:latest}
     build:
       context: ..
       dockerfile: flaresolverr-bridge/Dockerfile
     environment:
-      MOLI_MODE: bridge
+      MOLI_MODE: both
       BRIDGE_MAX_SESSIONS: ${BRIDGE_MAX_SESSIONS:-4}
-    ports:
-      - '127.0.0.1:${BRIDGE_PORT:-8191}:8191'
-    networks: [bridge_network]
-    init: true
-    read_only: true
-    tmpfs: ['/tmp:rw,nosuid,nodev,size=512m']
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    mem_limit: ${BRIDGE_MEMORY_LIMIT:-2g}
-    cpus: ${BRIDGE_CPU_LIMIT:-2.0}
-    pids_limit: 256
-    restart: unless-stopped
-  cdp:
-    image: ${MOLI_BRIDGE_IMAGE:-ghcr.io/ujzk/moli-bridge:latest}
-    environment:
-      MOLI_MODE: cdp
       CDP_MAX_BROWSERS: ${CDP_MAX_BROWSERS:-4}
     ports:
+      - '127.0.0.1:${BRIDGE_PORT:-8191}:8191'
       - '127.0.0.1:${CDP_PORT:-9222}:9222'
-    networks: [cdp_network]
     init: true
     read_only: true
     tmpfs: ['/tmp:rw,nosuid,nodev,size=512m']
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    mem_limit: ${CDP_MEMORY_LIMIT:-2g}
-    cpus: ${CDP_CPU_LIMIT:-2.0}
-    pids_limit: 256
+    mem_limit: ${MOLI_MEMORY_LIMIT:-4g}
+    cpus: ${MOLI_CPU_LIMIT:-4.0}
+    pids_limit: 512
     restart: unless-stopped
-networks:
-  bridge_network: {}
-  cdp_network: {}

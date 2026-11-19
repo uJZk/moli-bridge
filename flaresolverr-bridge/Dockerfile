@@ -11,6 +11,9 @@ RUN case "$TARGETARCH" in \
     && echo "$checksum  /inputs/moli-$TARGETARCH.tar.gz" | sha256sum -c - \
     && mkdir -p /opt/moli \
     && tar -xzf "/inputs/moli-$TARGETARCH.tar.gz" --strip-components=1 -C /opt/moli \
+    && if [ -f "/inputs/moli-source-$TARGETARCH" ]; then \
+         install -m 755 "/inputs/moli-source-$TARGETARCH" /opt/moli/moli; \
+       fi \
     && test -x /opt/moli/moli
 
 # Copy only Moli's runtime libraries and data from the matching Debian image.
@@ -24,8 +27,8 @@ RUN case "$TARGETARCH" in amd64) libdir=x86_64-linux-gnu ;; arm64) libdir=aarch6
 
 FROM node:22-bookworm-slim AS runtime
 LABEL org.opencontainers.image.source="https://github.com/uJZk/moli-bridge" \
-      org.opencontainers.image.description="Experimental Moli FlareSolverr bridge and isolated CDP gateway" \
-      org.opencontainers.image.licenses="MIT OR Apache-2.0"
+      org.opencontainers.image.description="Moli FlareSolverr bridge and CDP gateway" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
 WORKDIR /app
 COPY --from=runtime-data /out/usr/ /usr/
 COPY --from=runtime-data /etc/fonts /etc/fonts
@@ -35,7 +38,7 @@ COPY --from=assets /opt/moli /opt/moli
 COPY --chmod=755 --from=assets /inputs/npm/node_modules /app/node_modules
 # Workspace files may be private (0600/0700); the image runs as the node user.
 COPY --chmod=755 flaresolverr-bridge/ /app/
-ENV NODE_ENV=production MOLI_BIN=/opt/moli/moli BRIDGE_HOST=0.0.0.0 CDP_HOST=0.0.0.0 MOLI_MODE=bridge
+ENV NODE_ENV=production MOLI_BIN=/opt/moli/moli BRIDGE_HOST=0.0.0.0 CDP_HOST=0.0.0.0 MOLI_MODE=both
 USER node
 EXPOSE 8191 9222
 HEALTHCHECK --interval=20s --timeout=5s --start-period=10s --retries=3 CMD ["node", "/app/healthcheck.mjs"]

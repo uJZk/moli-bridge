@@ -1,6 +1,8 @@
 # Moli FlareSolverr bridge prototype
 
-A local `/v1` service using the pinned open-source `playwright-core` CDP client and a separate Moli process per session. It is a development prototype, not yet a FlareSolverr replacement for protected sites. In particular it has not passed the complete MoviePilot sign-in flow. An experimental CDP gateway is provided separately; the required resource and control-plane isolation between it and bridge backends is not yet implemented or verified.
+A local `/v1` service using the pinned open-source `playwright-core` CDP client and a separate Moli process per session. It is a development prototype, not yet a FlareSolverr replacement for protected sites. In particular it has not passed the complete MoviePilot sign-in flow. The default container also runs the CDP gateway; both endpoints share container resources and a network namespace.
+
+The bridge incorporates code adapted from TRAWL under AGPL-3.0-only; see [the upstream notice](upstream/TRAWL-NOTICE.md) and [license](upstream/TRAWL-LICENSE). Network operators and distributors must provide the corresponding source as required by the license. Moli and other included components retain their own licenses.
 
 Requires Node.js 22 or later and a Moli executable with `serve --port 0`. Install dependencies and start from this directory:
 
@@ -9,11 +11,43 @@ npm ci
 MOLI_BIN=/path/to/moli npm start
 ```
 
-The API listens on `127.0.0.1:8191` by default. `BRIDGE_HOST`, `BRIDGE_PORT` and `BRIDGE_MAX_SESSIONS` configure the listener and process limit. `MOLI_USER_AGENT` optionally passes a fixed `--user-agent` to every bridge backend; the resulting browser UA is returned in `solution.userAgent`. Do not change it during a session that depends on clearance cookies.
+The API listens on `127.0.0.1:8191` by default. `BRIDGE_HOST`, `BRIDGE_PORT` and `BRIDGE_MAX_SESSIONS` configure the listener and process limit. The process limit must be a positive safe integer; an invalid value prevents startup instead of silently disabling the limit. `MOLI_USER_AGENT` optionally passes a fixed `--user-agent` to every bridge backend; the resulting browser UA is returned in `solution.userAgent`. Do not change it during a session that depends on clearance cookies.
 
-Implemented commands: `sessions.create`, `sessions.list`, `sessions.destroy`, `request.get` and `request.post`. Named sessions retain state and use the proxy supplied at creation; unnamed requests use temporary processes. GET/POST, request headers, cookies, `maxTimeout`, `session_ttl_minutes`, `returnOnlyCookies`, `returnScreenshot`, `waitInSeconds` and `disableMedia` have prototype support. The upstream FlareSolverr challenge detection patterns are reused under MIT in `upstream/`; detected challenges are waited for, but FlareSolverr's challenge solvers and `tabs_till_verify` are not implemented. Known blocked pages return an error. Challenge detection is not exhaustive, and a successful response does not establish challenge clearance.
+Destroyed or timed-out sessions disappear from the session list immediately, but their backend processes continue to count against the limit until they exit. The bridge sends `SIGKILL` after two seconds if a process has not exited. The endpoint process limits do not reserve CPU or memory between them.
 
-The service accepts arbitrary HTTP(S) targets and has no authentication. Keep it on a trusted network. Proxy credentials supplied in a proxy URL are passed to the Moli subprocess as command-line arguments and may be visible to users with process inspection access. Backend CDP listeners are on loopback, but processes on the same host can access them. Per-session processes alone do not provide the resource or control-plane isolation required for a public external Playwright endpoint.
+If the API client disconnects during an active `request.get` or `request.post`, the bridge retires that request's backend process, including a named session and its stored state. A disconnected request that is still queued is discarded without interrupting the running request. An abandoned temporary session is also retired during startup; a shared named session that is still starting is kept for other callers. Explicit session-management commands retain their existing semantics.
+
+Implemented commands: `sessions.create`, `sessions.list`, `sessions.destroy`, `request.get` and `request.post`. Named sessions retain state and use the proxy supplied at creation; unnamed requests use temporary processes. GET/POST, request headers, cookies, `maxTimeout`, `session_ttl_minutes`, `returnOnlyCookies`, `returnScreenshot`, `waitInSeconds` and `disableMedia` have prototype support. The upstream FlareSolverr challenge detection patterns and its keyboard and verify-button interaction are adapted under MIT in `upstream/`. Detected challenges are waited for and verification is attempted while the request deadline permits. Cloudflare challenge headers and AWS WAF challenge responses are treated as challenges even when titles are ordinary; an explicit AWS WAF CAPTCHA response returns an error because no AWS CAPTCHA solver is integrated. `tabs_till_verify` supports 0–100 Tab presses for GET requests and returns a changed `cf-turnstile-response` value as `solution.turnstile_token`; if the field is absent the value is null. Real Turnstile success remains unverified. Known blocked pages return an error. Challenge detection is not exhaustive, and a successful response does not establish challenge clearance.
+
+For explicit `tabs_till_verify` requests with at least one Tab, the bridge temporarily sets `tabindex="-1"` on hidden inputs in the main document, then restores their previous attributes if they still have that value. This works around Moli 1.1.26 incorrectly including hidden inputs in sequential focus; the generic-button and multiple-Tab paths are checked against that release with a local fixture. The mutation can be observed by page scripts, and does not cover inputs in shadow roots or child frames. It is not applied to the automatic challenge-frame fallback.
+
+The automatic keyboard fallback confirms that focus is on a recognized HTML challenge iframe before pressing Space. The official Moli 1.1.26 release does not move focus into the child document or deliver Space to its control in the local fixture. The workspace source now handles frame focus traversal and keyboard delivery; a locally built AMD64 executable passed the fixture, nested and empty-frame cases, visibility checks, and a local Chromium comparison. It also passed a local TLS cross-origin keyboard challenge. This does not establish success against a live challenge or on other architectures. Run `MOLI_TEST_BINARY=/path/to/moli node tools/flaresolverr-contract/check-iframe-keyboard.mjs` from the repository root to inspect keyboard delivery; add `CHROMIUM_TEST_BINARY=/path/to/chromium` for the control and `--expect-fixed` for a build expected to support it. `check-frame-tab-order.mjs` additionally checks Tab ordering, reverse navigation and hidden frames.
+
+`request.get` rejects a non-null `postData` field, as FlareSolverr does. `request.post` requires a string `postData`, including an empty string for an empty body. Both checks run before a new browser session is started.
+
+For HTML up to 256 KiB, active AWS WAF configuration and challenge scripts can also identify an interstitial without the action header. Successful HTTP responses must have a lean body; the heuristic excludes tested ordinary pages with visible content. A detected CAPTCHA returns an error; an automated script challenge is observed until it clears or the request times out. This evidence does not authorize POST replay and is verified only with local fixtures; other page shapes can still be misclassified or missed.
+
+Cloudflare `/cdn-cgi/error/` pages return an access-denied error. Query-only `error=1015` and `error=1020` are treated as blocks only on HTTP 403 or 429 responses with Cloudflare response evidence; ordinary successful pages with those query parameters remain valid.
+
+The DataDome `x-dd-b` response header is treated as challenge evidence, following TRAWL; `x-datadome` alone is not. For HTML up to 256 KiB, an active DataDome `dd` object with `t: 'bv'` and a provider hostname on an HTTP 403 or 429 response produces an explicit hard-block error. On an explicitly identified Device Check, a new or changed nonempty `datadome` cookie that remains stable for three seconds can trigger one same-origin GET to the original URL. That attempt shares the limit of one recovery across all challenge types; interactive CAPTCHAs and POST requests do not trigger it. The bridge does not solve a DataDome CAPTCHA or use these signals to authorize POST replay. This behavior has only been checked with local fixtures and can miss or misclassify other page formats.
+
+For HTML up to 256 KiB, active DDoS-Guard interstitial identifiers and script sources are also treated as challenge evidence, even if the title is ordinary. The bridge waits for them to disappear within the request deadline; a generic provider mention or server header alone is not evidence. This detection does not authorize POST replay and has only been verified with local fixtures, not a real DDoS-Guard challenge.
+
+The bridge tracks main-frame navigation while loading and collecting a response. If an initial navigation is reported as interrupted, it continues only when a replacement main-frame request was observed; failures of that replacement remain errors. Before returning, it observes a 500 ms quiet window and repeats its checks after each navigation or reload. This adds at least 500 ms to an otherwise immediately ready response and cannot predict redirects scheduled after the window; callers can use `waitInSeconds` when a longer wait is needed. All navigation and challenge work shares the request's overall timeout.
+
+For HTML up to 256 KiB, the bridge also recognizes short meta-refresh redirects (up to 10 seconds) and waits for the browser to perform them, with two seconds of additional grace and the same overall timeout. It reports an error if the advertised navigation does not occur. It does not force a navigation or replay a POST; same-URL refreshes, longer delays and refreshes in larger documents are not covered by this detection.
+
+For a GET that remains on a Cloudflare challenge, a new `cf_clearance` cookie that stays present for five seconds can trigger one return to the original same-origin URL. A cookie already present before navigation does not trigger recovery, and POST requests are never automatically replayed by this recovery path.
+
+For a detected DDoS-Guard challenge, a new `__ddg2_` or `__ddg5_` cookie that remains present for eight seconds can likewise trigger one same-origin GET to the original URL. Recovery attempts across both challenge types share a limit of one per request. Existing cookies and POST requests do not trigger this recovery. This behavior follows a restricted form of TRAWL's DDoS-Guard waiter and has only been verified with local fixtures.
+
+The challenge flow also tries native and ARIA checkbox controls inside HTTPS `challenges.cloudflare.com` frames and same-origin `/cdn-cgi/challenge-platform/` frames. Accessible controls use normal browser actionability checks so an overlay cannot receive a forced click. For closed shadow roots, CDP inspection limits the search to the recognized frame and checks that the checkbox is connected, enabled and unchecked. The hit test must identify the checkbox itself, or a verified noninteractive descendant of an ARIA checkbox. Automatic keyboard fallback only presses Space when focus is confirmed inside a recognized challenge frame. Local TLS fixtures exercise cross-origin open and closed shadow roots, checked and disabled controls, overlays and interactive descendants; they do not contact Cloudflare or establish real Turnstile clearance. Explicit `tabs_till_verify` remains a caller-directed keyboard action.
+
+When `session_ttl_minutes` expires while a named session is starting or executing a request, rotation returns a busy error instead of terminating the in-flight process. Retry after the other operation completes. For an idle expired session, the bridge waits for the old process to exit within the request timeout, then recreates the session with its existing proxy. Other calls for that session receive a busy error while it rotates. If the wait for the old process times out or the client disconnects before replacement starts, the old session is removed and no replacement is started. Once a replacement named session has begun starting, it follows the shared-startup behavior described above.
+
+For `request.post`, the bridge guards subsequent main-frame POST navigations to the original URL: a replay is allowed only after that submission receives an explicit `cf-mitigated: challenge` or AWS WAF `202`/`x-amzn-waf-action: challenge` response, or recognized active Cloudflare/Anubis HTML challenge evidence. HTML inspection requires an HTML content type, a declared length at most 256 KiB and a decoded body no larger than 256 KiB. Otherwise the bridge aborts it and returns an error. This adapts a subset of TRAWL's replay guard: other destinations, unrecognized or unbounded HTML evidence, and arbitrary page-initiated side effects are not covered, and the bridge does not initiate a replay itself.
+
+The service accepts arbitrary HTTP(S) targets and has no authentication. Keep it on a trusted network. Proxy `username` and `password` fields are plain strings; credentials embedded directly in a proxy URL must use URL encoding for reserved characters. The `socks5h` alias is normalized to SOCKS5, which sends the target hostname to the proxy. Proxy credentials are passed to the Moli subprocess as command-line arguments and may be visible to users with process inspection access. Backend CDP listeners are on loopback and can be reached by other processes in the same container.
 
 Run the acceptance tests described in [tools/flaresolverr-contract](../tools/flaresolverr-contract/README.md). A local fixture pass does not verify CAPTCHA solving, the site's anti-bot checks, or the plugin's independent browser/direct POST paths. See [the investigation](../docs/flaresolverr-bridge-investigation.md) for the upstream choices and outstanding work.
 
@@ -21,27 +55,58 @@ See the [upstream sources and synchronization guide](../docs/UPSTREAMS.md) for d
 
 ## Container build and use
 
-The same image has two modes: `MOLI_MODE=bridge` and `MOLI_MODE=cdp`. The supplied
-[Compose file](compose.yaml) runs the modes in separate containers, PID and network
-namespaces, with separate memory, CPU and PID limits. Both published ports bind
-to `127.0.0.1` by default. The services have no authentication; provide a trusted,
-authenticated perimeter before exposing either port. These settings require a
-Docker runtime with working cgroup limits and network isolation. Resource
-exhaustion and hostile-client isolation still need verification on the target host.
+The default `MOLI_MODE=both` runs the bridge and CDP gateway in one container.
+Each endpoint starts its own Moli processes, but they share the container's CPU,
+memory, PID and network boundaries. Compose binds both ports to `127.0.0.1` by
+default. Neither endpoint has authentication; use a trusted, authenticated
+perimeter before exposing either port. `MOLI_MODE=bridge` and `MOLI_MODE=cdp`
+remain available for deployments that need only one endpoint.
 
 Build locally from the repository root:
 
 ```sh
-./scripts/prepare-bridge-container.sh
+CARGO_PROFILE_DEV_DEBUG=0 cargo build --locked -p moli
+MOLI_SOURCE_BINARY="$PWD/target/debug/moli" ./scripts/prepare-bridge-container.sh
 MOLI_BRIDGE_IMAGE=moli-bridge:local docker compose -f flaresolverr-bridge/compose.yaml up -d --build
 ```
 
 The preparation step downloads the official Moli 1.1.26 AMD64 and ARM64 release
 archives and checks pinned SHA-256 hashes. It installs the lockfile-pinned pure JS
-dependencies in the ignored `.container-assets` directory. The image embeds the
-official release binary, its included license notices, and the bridge code; it does
-not compile the Moli source in this fork. Use `MOLI_RELEASE_CACHE_DIR` to reuse
+dependencies in the ignored `.container-assets` directory. If `MOLI_SOURCE_BINARY`
+is set, the AMD64 image embeds that Linux AMD64 executable in place of the
+upstream binary. `MOLI_SOURCE_ARM64_BINARY` does the same for ARM64. If either
+variable is omitted, that architecture uses the official release. Release CI
+supplies both binaries built from the current checkout.
+Use `MOLI_RELEASE_CACHE_DIR` to reuse
 previously downloaded `moli-1.1.26-amd64.tar.gz` and `moli-1.1.26-arm64.tar.gz`.
+
+To use a Moli executable built from this workspace instead, pass the optional
+Compose override and an absolute path to the executable:
+
+```sh
+MOLI_SOURCE_BINARY=/absolute/path/to/moli \
+  docker compose -f flaresolverr-bridge/compose.yaml \
+  -f flaresolverr-bridge/compose.source.yaml up -d --build
+```
+
+The override bind-mounts that file read-only at `/opt/moli/moli` in the
+container. The bridge and CDP gateway still launch separate Moli processes.
+The executable must be a Linux binary for the
+container architecture, executable by the container's `node` user, and
+compatible with the image's runtime libraries. Mount the same exact build
+used for testing; replacing a bind-mounted file requires recreating the
+container. The mount replaces whichever Moli binary was included at image build.
+
+Before using the override, the executable and image can be checked in two
+disposable containers without external networking:
+
+```sh
+./tools/flaresolverr-contract/check-source-container.sh /absolute/path/to/moli moli-bridge:local
+```
+
+This covers the bridge's local navigation and keyboard challenge, plus the
+CDP role's iframe keyboard interaction. It does not verify target-site
+challenges or the host's resource limits.
 
 Check the local image with:
 
@@ -49,30 +114,43 @@ Check the local image with:
 MOLI_BRIDGE_IMAGE=moli-bridge:local ./scripts/smoke-bridge-container.sh
 ```
 
-The script starts separate disposable
-services, checks their health, performs local API and CDP requests, restarts each
-service and repeats the checks. Sessions are in memory and are lost on restart.
-`BRIDGE_PORT`, `CDP_PORT`, `BRIDGE_MEMORY_LIMIT`, `CDP_MEMORY_LIMIT`,
-`BRIDGE_CPU_LIMIT`, and `CDP_CPU_LIMIT` can be set for Compose. Verify actual
-runtime enforcement; accepting a limit in Compose is not proof it is enforced.
+The script starts one disposable service, checks both endpoints, restarts it and
+repeats the checks. Sessions are in memory and are lost on restart. `BRIDGE_PORT`,
+`CDP_PORT`, `MOLI_MEMORY_LIMIT` and `MOLI_CPU_LIMIT` can be set for Compose.
 
-The `Experimental container` GitHub Actions workflow builds and smoke-tests
-AMD64 and ARM64 images before publishing `ghcr.io/ujzk/moli-bridge:latest` and a
-commit-specific `sha-<commit>` tag. The ARM64 test uses QEMU. Publication depends
+The `Experimental container` GitHub Actions workflow builds Moli from the
+checkout for both AMD64 and ARM64 and smoke-tests the AMD64 image before
+publishing the multi-architecture `ghcr.io/ujzk/moli-bridge:latest` image. The
+ARM64 image is not smoke-tested by this workflow. Publication depends
 on a successful workflow run and registry permissions; no stable release is
 implied by the `latest` tag. Pulling `ghcr.io/ujzk/moli-bridge` without an
-explicit tag selects `latest`.
+explicit tag selects `latest`. The image's `org.opencontainers.image.revision`
+label records the source commit used to build it.
+
+## RSSHub CDP connection
+
+RSSHub's `PLAYWRIGHT_CDP_ENDPOINT` can point to the gateway's HTTP root, for example `http://127.0.0.1:9222`, or a direct WebSocket such as `ws://127.0.0.1:9222/chromium`. RSSHub must be able to reach that address from its own network namespace. This has been checked against the `patchright` client and launch format used by RSSHub commit `8f71938d4b9b032cab5712788d5ca8f4f327917c`; it is not a claim that every RSSHub route works.
+
+At the pinned RSSHub revision, the Worker fetch wrapper invokes the targeted API retry only when `PLAYWRIGHT_WS_ENDPOINT` is set; the ordinary Node wrapper does not invoke it. [Optional source patches](../tools/rsshub/README.md) enable CDP and separately connect the retry to the Node wrapper. They must be applied when building RSSHub and do not change a running installation automatically.
+
+The patched RSSHub page and retry modules have also been exercised together with Patchright and a Moli gateway using local TLS fixtures, including GET and form replay, redirect rejection and cancellation. A separate optional UPS route patch works around a Moli 1.1.26 dynamic table layout issue; see the [patch notes](../tools/rsshub/README.md). These checks do not test the user's RSSHub deployment or live endpoints.
+
+An additional Moli-specific optional RSSHub patch enables authenticated HTTP, HTTPS and SOCKS5 proxies over this CDP gateway; unpatched RSSHub instead skips authenticated proxies in CDP mode. The patch is not for other CDP providers. HTTPS proxy certificates must be trusted by Moli. Proxy credentials travel in the CDP connection query and the Moli process arguments, which may be exposed in network/access logs or to local process inspectors; see the [patch notes](../tools/rsshub/README.md) before using it.
+
+The gateway accepts RSSHub's Browserless `launch` JSON, including its default sandbox/window flags, `headless: true` and `--proxy-server=...`. `stealth: true` maps to Moli's automation override (`navigator.webdriver` false); it does not provide all Browserless or Patchright stealth behavior. Unknown launch flags, PAC proxy arguments, authentication tokens in the query string, and non-headless mode are rejected. The endpoint itself has no authentication; keep it in a trusted network or behind an authenticated perimeter. Browserless' Playwright protocol (`PLAYWRIGHT_WS_ENDPOINT`) is not supported by this CDP gateway.
 
 ## Experimental CDP query gateway
 
-The gateway is a separate executable and starts a fresh Moli process for each Playwright CDP connection. Run it in an isolated service or container with a network namespace and resource limits distinct from the FlareSolverr bridge. The Compose example configures separate boundaries, but their enforcement and resistance to resource exhaustion must be verified on the deployment host. Separate processes and loopback listeners alone are insufficient isolation. The gateway itself has no authentication. It listens on loopback by default.
+The gateway is a separate executable and starts a fresh Moli process for each Playwright CDP connection. In the default deployment it shares a container and resource limits with the bridge. The gateway itself has no authentication. It listens on loopback by default when started directly.
 
 ```sh
 npm ci
 MOLI_BIN=/path/to/moli npm run cdp
 ```
 
-`CDP_HOST`, `CDP_PORT` and `CDP_MAX_BROWSERS` configure the listener and connection limit (defaults `127.0.0.1`, `9222`, and `8`). Use an HTTP URL with Playwright `connectOverCDP`; the query is read during `/json/version` discovery. The discovery URL and browser WebSocket are one-use and the browser process is stopped on disconnect. URL-encode query values as needed:
+`CDP_HOST`, `CDP_PORT` and `CDP_MAX_BROWSERS` configure the listener and connection limit (defaults `127.0.0.1`, `9222`, and `8`). The limit must be a positive safe integer; an invalid value prevents startup. Use an HTTP URL with Playwright `connectOverCDP`; the query is read during `/json/version` discovery. The discovery URL and browser WebSocket are one-use and the browser process is stopped on disconnect. URL-encode query values as needed:
+
+Abandoning HTTP discovery or a direct WebSocket while the backend is starting closes that backend. A stopped backend continues to count against `CDP_MAX_BROWSERS` until its process exits; the gateway sends `SIGKILL` after two seconds if it has not exited. An unused successful discovery is closed after 30 seconds. The limit does not reserve CPU or memory for the bridge.
 
 ```text
 http://127.0.0.1:9222?timezone=Asia%2FShanghai&locale=zh-CN&platform=windows&brand=Edge&hardware-concurrency=10
@@ -110,7 +188,7 @@ All parameters are optional. An omitted, empty, or whitespace-only value uses th
 | `reduced-motion`, `reduced-transparency` | `reduce` or `no-preference`; default: browser/client setting. |
 | `forced-colors` | `active` or `none`; default: browser/client setting. |
 | `contrast` | `more`, `less`, `no-preference`, `custom`; default: browser/client setting. |
-| `proxy` | HTTP, HTTPS, SOCKS4 or SOCKS5 URL; default: Moli's network configuration including applicable environment variables. Explicit proxy disables bypass unless `proxy-bypass` is set. |
+| `proxy` | HTTP, HTTPS, SOCKS4, SOCKS5 or SOCKS5H URL; SOCKS5H is normalized to SOCKS5. Default: Moli's network configuration including applicable environment variables. Explicit proxy disables bypass unless `proxy-bypass` is set. |
 | `proxy-bypass` | Moli's comma-separated bypass list; default: Moli's native/environment setting without an explicit proxy, or empty with one. |
 | `data-saver`, `automation` | Boolean overrides for `navigator.connection.saveData` and automation state (`navigator.webdriver`); default: Moli native state, normally `false`. |
 | `javascript` | Boolean; default enabled. `false` disables page JavaScript. |
@@ -130,4 +208,4 @@ Only the options in the table are documented for this gateway. Arbitrary documen
 
 The current checks cover pages, same-origin frames and a dedicated worker; other browser surfaces and every possible worker lifecycle have not been established. CDP commands issued by the client can override these settings. A successful local fingerprint check is not evidence that a protected site will accept the browser.
 
-The gateway supports the HTTP discovery form shown above and flat CDP sessions as used by Playwright `connectOverCDP`. Direct WebSocket URLs with query parameters, remote TLS termination, all CDP clients and reconnection to a previously disconnected browser have not been validated. See [the CDP checks](../tools/flaresolverr-contract/README.md).
+The gateway supports the HTTP discovery form shown above and flat CDP sessions as used by Playwright `connectOverCDP`. RSSHub-style direct WebSocket URLs and launch parameters are tested; remote TLS termination, all CDP clients and reconnection to a previously disconnected browser have not been validated. See [the CDP checks](../tools/flaresolverr-contract/README.md).

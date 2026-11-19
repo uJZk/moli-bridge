@@ -1,0 +1,8 @@
+# Optional: use an explicitly built Moli binary in the single service.
+services:
+  moli:
+    volumes:
+      - type: bind
+        source: ${MOLI_SOURCE_BINARY:?Set MOLI_SOURCE_BINARY to an absolute path}
+        target: /opt/moli/moli
+        read_only: true

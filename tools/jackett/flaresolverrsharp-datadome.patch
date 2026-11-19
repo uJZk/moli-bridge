@@ -1,0 +1,75 @@
+diff --git a/src/FlareSolverrSharp/ChallengeDetector.cs b/src/FlareSolverrSharp/ChallengeDetector.cs
+--- a/src/FlareSolverrSharp/ChallengeDetector.cs
++++ b/src/FlareSolverrSharp/ChallengeDetector.cs
+@@ -19,7 +19,8 @@
+         /// </summary>
+         /// <param name="response">The HttpResponseMessage to check.</param>
+         /// <returns>True if the site requires clearance</returns>
+-        public static bool IsClearanceRequired(HttpResponseMessage response) => IsCloudflareProtected(response);
++        public static bool IsClearanceRequired(HttpResponseMessage response) =>
++            response.Headers.Contains("x-dd-b") || IsCloudflareProtected(response);
+ 
+         /// <summary>
+         /// Checks if the site is protected by Cloudflare
+diff --git a/src/FlareSolverrSharp/ClearanceHandler.cs b/src/FlareSolverrSharp/ClearanceHandler.cs
+--- a/src/FlareSolverrSharp/ClearanceHandler.cs
++++ b/src/FlareSolverrSharp/ClearanceHandler.cs
+@@ -162,10 +162,10 @@
+ 
+         private void InjectCookies(HttpRequestMessage request, FlareSolverrResponse flareSolverrResponse)
+         {
+-            // use only Cloudflare and DDoS-GUARD cookies
++            // use only Cloudflare, DDoS-GUARD and DataDome clearance cookies
+             var flareCookies = flareSolverrResponse.Solution
+                 .Cookies
+-                .Where(cookie => IsCloudflareCookie(cookie.Name))
++                .Where(cookie => IsClearanceCookie(cookie.Name))
+                 .ToList();
+ 
+             // not using cookies, just add flaresolverr cookies to the header request
+@@ -217,7 +217,7 @@
+                     break;
+                 }
+ 
+-                if (cookie.Expired || IsCloudflareCookie(cookie.Name))
++                if (cookie.Expired || IsClearanceCookie(cookie.Name))
+                 {
+                     continue;
+                 }
+@@ -230,14 +230,15 @@
+         private static void InjectSetCookieHeader(HttpResponseMessage response, FlareSolverrResponse flareSolverrResponse)
+         {
+             // inject set-cookie headers in the response
+-            foreach (var rCookie in flareSolverrResponse.Solution.Cookies.Where(cookie => IsCloudflareCookie(cookie.Name)))
++            foreach (var rCookie in flareSolverrResponse.Solution.Cookies.Where(cookie => IsClearanceCookie(cookie.Name)))
+             {
+                 response.Headers.Add(HttpHeaders.SetCookie, rCookie.ToHeaderValue());
+             }
+         }
+ 
+-        private static bool IsCloudflareCookie(string cookieName) =>
+-            cookieName.StartsWith("cf_") || cookieName.StartsWith("__cf") || cookieName.StartsWith("__ddg");
++        private static bool IsClearanceCookie(string cookieName) =>
++            cookieName.StartsWith("cf_") || cookieName.StartsWith("__cf") || cookieName.StartsWith("__ddg") ||
++            cookieName.Equals("datadome", StringComparison.Ordinal);
+ 
+         protected override void Dispose(bool disposing)
+         {
+diff --git a/src/FlareSolverrSharp/FlareSolverrSharp.csproj b/src/FlareSolverrSharp/FlareSolverrSharp.csproj
+--- a/src/FlareSolverrSharp/FlareSolverrSharp.csproj
++++ b/src/FlareSolverrSharp/FlareSolverrSharp.csproj
+@@ -9,12 +9,13 @@
+     <PackageTags>flaresolverr, flaresolver, cloudflare, solver, bypass, protection, solving, library, cloudflaresolver, delegatinghandler, recaptcha, captcha, javascript, challenge, utilities</PackageTags>
+     <RepositoryUrl>https://github.com/FlareSolverr/FlareSolverrSharp</RepositoryUrl>
+     <PackageProjectUrl>https://github.com/FlareSolverr/FlareSolverrSharp</PackageProjectUrl>
+-    <PackageLicenseUrl>https://github.com/FlareSolverr/FlareSolverrSharp/blob/master/LICENSE</PackageLicenseUrl>
++    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+     <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
+     <AssemblyName>FlareSolverrSharp</AssemblyName>
+   </PropertyGroup>
+ 
+   <ItemGroup>
++    <None Include="../../LICENSE" Pack="true" PackagePath="" />
+     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+   </ItemGroup>
+ </Project>
