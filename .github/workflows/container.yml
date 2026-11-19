@@ -45,6 +45,8 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+      - name: Trust the mounted checkout for Git metadata
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Install native build dependencies
         run: apt-get update && apt-get install -y --no-install-recommends cmake libclang-dev lld
       - name: Build Moli from this checkout
