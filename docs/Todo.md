@@ -8,7 +8,7 @@
 - [ ] 按目标插件的调用验证 GET、POST、请求体、Cookie、代理、超时、响应状态和错误处理。
 - [x] 按用户决定采用单容器；Bridge 与 CDP 仍分别创建 Moli 进程，但共享网络、进程空间和资源限额，不再要求资源隔离验证。
 - [ ] 在目标受保护站点实测挑战处理，确认实际可用性；验证外部 Playwright 的连接及基本操作。
-- [ ] 构建并发布单容器镜像；AMD64 和 ARM64 均使用当前仓库构建的 Moli，按用户要求跳过 ARM64 运行验证。
+- [x] 构建并发布单容器镜像；AMD64 和 ARM64 均使用当前仓库构建的 Moli，按用户要求跳过 ARM64 运行验证。[发布任务](https://github.com/uJZk/moli-bridge/actions/runs/44495056384)已推送 `ghcr.io/ujzk/moli-bridge:latest`，镜像清单摘要为 `sha256:0ffd6dfdd20adc3e73779a6ad22e33307c7c7c84e3dd0d1b36a2221ac585d300`。
 
 - [ ] 外部 Playwright CDP 入口兼容 URL 参数；网关原型已支持示例中的参数以及 Moli 原生可配置的设备、身份、位置、网络和媒体设置，详见[参数与默认值](../flaresolverr-bridge/README.md#experimental-cdp-query-gateway)。Moli 本身会忽略这些 URL 参数。
 
@@ -19,4 +19,4 @@
 - [x] 验证挑战 iframe 中的可访问复选框和开放 Shadow DOM，包括本地 TLS 跨源夹具、封闭 Shadow DOM 的命中检查、令牌交接和无关 iframe 不被自动点击；真实 Cloudflare 仍需实测。
 - [x] 修复源码版 Moli 中 iframe 子文档的 Tab 焦点遍历和键盘事件投递；本地 AMD64 构建已通过[对照检查](../flaresolverr-bridge/README.md)和跨域夹具。上游 1.1.26 发布版仍有此问题。
 - [x] 完成 Rust 工作区格式和 Clippy 检查，以及 Nextest 全套测试：23,714 项通过，20 项按测试配置跳过。本地单容器的两个入口及重启恢复也已通过冒烟测试。
-- [ ] 发布包含源码版 Moli iframe 修复的 AMD64 镜像，并验证实际受保护站点；也可通过 [Compose 覆盖配置](../flaresolverr-bridge/README.md#container-build-and-use)挂载源码构建。
+- [ ] 在实际受保护站点验证已发布的源码版 Moli iframe 修复；也可通过 [Compose 覆盖配置](../flaresolverr-bridge/README.md#container-build-and-use)挂载源码构建。
