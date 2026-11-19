@@ -9,6 +9,7 @@
 - [x] 按用户决定采用单容器；Bridge 与 CDP 仍分别创建 Moli 进程，但共享网络、进程空间和资源限额，不再要求资源隔离验证。
 - [ ] 在目标受保护站点实测挑战处理，确认实际可用性；验证外部 Playwright 的连接及基本操作。
 - [x] 构建并发布单容器镜像；AMD64 和 ARM64 均使用当前仓库构建的 Moli，按用户要求跳过 ARM64 运行验证。[发布任务](https://github.com/uJZk/moli-bridge/actions/runs/44495056384)已推送 `ghcr.io/ujzk/moli-bridge:latest`，镜像清单摘要为 `sha256:0ffd6dfdd20adc3e73779a6ad22e33307c7c7c84e3dd0d1b36a2221ac585d300`。
+- [x] 2026-11-19 再次拉取上述 `latest`：Bridge 单元测试 20 项通过，AMD64 单容器的 Bridge、CDP、RSSHub 风格连接和重启复测通过；ARM64 运行验证按用户要求跳过。
 
 - [ ] 外部 Playwright CDP 入口兼容 URL 参数；网关原型已支持示例中的参数以及 Moli 原生可配置的设备、身份、位置、网络和媒体设置，详见[参数与默认值](../flaresolverr-bridge/README.md#experimental-cdp-query-gateway)。Moli 本身会忽略这些 URL 参数。
 

@@ -106,6 +106,6 @@ sha256sum /tmp/moli-moviepilot-captcha.py
 1. 启动**用于测试**的桥接与独立 CDP 网关。按[契约测试说明](../tools/flaresolverr-contract/README.md)运行实际 MoviePilot 辅助函数、会话、Cookie、GET/POST、错误、超时及代理检查；代理测试需显式启用 `--test-proxy` 并使用桥接能访问的地址，跳过不算通过。
 2. 在 `flaresolverr-bridge/` 运行 `npm test`，再按契约测试说明对可丢弃的网关运行 `check-cdp-profile.mjs` 和 `check-cdp-gateway.mjs`；检查空值、多个并发客户端、页面与 Worker、导航和设置覆盖。必要时运行 `moli-cdp-smoke` 中受影响的场景。协议测试本身不能证明服务间资源隔离。
 3. 构建镜像并运行 `scripts/smoke-bridge-container.sh`，检查单容器内两个入口的健康状态、实际请求与重启恢复。两个入口共享容器资源和网络，不声称资源隔离。
-4. 按正常发布流程更新文档与待办。推送影响镜像的变更到 `main` 会触发 `.github/workflows/container.yml`，在 AMD64 单容器冒烟测试通过后推送多架构 `ghcr.io/ujzk/moli-bridge:latest`。检查实际运行状态与远程镜像清单，再报告发布结果；当前完整 MoviePilot 签到和受保护站点挑战仍需单独验证。
+4. 按正常发布流程更新文档与待办。推送影响镜像的变更到 `main` 会触发 `.github/workflows/container.yml`，在 AMD64 单容器冒烟测试通过后推送多架构 `ghcr.io/ujzk/moli-bridge:latest`，然后检查两个架构镜像的源码提交标签。也可从 Actions 页面或运行 `gh workflow run container.yml --ref main` 手动触发；手动运行同样会在成功后发布 `latest`。文档变更不会自动触发镜像构建。按 [Bridge 部署说明](../flaresolverr-bridge/README.md#github-actions-and-deployment)核对运行状态、镜像清单和源码提交标签，再报告发布结果；当前完整 MoviePilot 签到和受保护站点挑战仍需单独验证。
 
 如果更新 GitHub Actions，本仓库的工作流使用固定提交 SHA；应核对官方仓库标签、变更和权限后同时更新 SHA 与版本注释。基础镜像当前是浮动标签，更新前后要审查解析到的摘要、架构和系统库，而不是假设标签内容不变。

@@ -62,13 +62,22 @@ default. Neither endpoint has authentication; use a trusted, authenticated
 perimeter before exposing either port. `MOLI_MODE=bridge` and `MOLI_MODE=cdp`
 remain available for deployments that need only one endpoint.
 
-Build locally from the repository root:
+To build locally on Linux AMD64, install the pinned Rust toolchain and the
+native build dependencies (including CMake, libclang and LLD), then run from the
+repository root:
 
 ```sh
-CARGO_PROFILE_DEV_DEBUG=0 cargo build --locked -p moli
+CARGO_PROFILE_DEV_DEBUG=0 \
+  RUSTFLAGS='-C link-arg=-fuse-ld=lld -C link-arg=-Wl,--no-pie -C link-arg=-Wl,--icf=safe' \
+  cargo build --locked -p moli
 MOLI_SOURCE_BINARY="$PWD/target/debug/moli" ./scripts/prepare-bridge-container.sh
 MOLI_BRIDGE_IMAGE=moli-bridge:local docker compose -f flaresolverr-bridge/compose.yaml up -d --build
 ```
+
+On a Linux ARM64 host, build for the native architecture with
+`RUSTFLAGS='-C link-arg=-fuse-ld=lld'`, then pass the resulting executable as
+`MOLI_SOURCE_ARM64_BINARY` instead. The ARM64 path was built in CI but was not
+run in this verification.
 
 The preparation step downloads the official Moli 1.1.26 AMD64 and ARM64 release
 archives and checks pinned SHA-256 hashes. It installs the lockfile-pinned pure JS
@@ -118,14 +127,45 @@ The script starts one disposable service, checks both endpoints, restarts it and
 repeats the checks. Sessions are in memory and are lost on restart. `BRIDGE_PORT`,
 `CDP_PORT`, `MOLI_MEMORY_LIMIT` and `MOLI_CPU_LIMIT` can be set for Compose.
 
-The `Experimental container` GitHub Actions workflow builds Moli from the
+### GitHub Actions and deployment
+
+The [`Experimental container` workflow](../.github/workflows/container.yml) builds Moli from the
 checkout for both AMD64 and ARM64 and smoke-tests the AMD64 image before
 publishing the multi-architecture `ghcr.io/ujzk/moli-bridge:latest` image. The
-ARM64 image is not smoke-tested by this workflow. Publication depends
-on a successful workflow run and registry permissions; no stable release is
-implied by the `latest` tag. Pulling `ghcr.io/ujzk/moli-bridge` without an
-explicit tag selects `latest`. The image's `org.opencontainers.image.revision`
-label records the source commit used to build it.
+ARM64 image is not smoke-tested by this workflow. Pushes to `main` that change
+the listed build inputs trigger it automatically; documentation-only changes do
+not. To run it manually, select **Actions → Experimental container → Run
+workflow**, choose `main`, or use an authenticated GitHub CLI:
+
+```sh
+gh workflow run container.yml --ref main
+gh run list --workflow container.yml --branch main --limit 5
+```
+
+A manual run also publishes `latest` after the checks pass. The workflow needs
+package write permission to push to GHCR and then verifies that both published
+platforms carry the expected `org.opencontainers.image.revision` label. Inspect
+the run before treating a new image as published: the final registry check runs
+after the push. The revision records the source commit used to build the image,
+which can precede a later documentation-only commit.
+
+To inspect and deploy the published image from the repository root:
+
+```sh
+docker buildx imagetools inspect ghcr.io/ujzk/moli-bridge:latest
+docker compose -f flaresolverr-bridge/compose.yaml pull
+docker image inspect ghcr.io/ujzk/moli-bridge:latest \
+  --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'
+docker compose -f flaresolverr-bridge/compose.yaml up -d --no-build
+```
+
+Compose exposes the Bridge on host loopback port `8191` and CDP on `9222` by
+default. A Jackett or RSSHub process in another container needs an appropriate
+network route: its own `127.0.0.1` refers to that container. Neither endpoint
+authenticates clients, so restrict access to trusted clients.
+
+The image is experimental; the `latest` tag does not denote a stable release.
+Pulling `ghcr.io/ujzk/moli-bridge` without an explicit tag selects `latest`.
 
 ## RSSHub CDP connection
 
