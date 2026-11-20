@@ -11,6 +11,7 @@ import { ClearanceRecovery } from './upstream/trawl-clearance-recovery.mjs';
 import { processLimit } from './process-limit.mjs';
 import { waitForProcessExit } from './process-exit.mjs';
 import { normalizeProxy } from './proxy-url.mjs';
+import { createDiagnostics } from './diagnostics.mjs';
 
 const port = Number(process.env.BRIDGE_PORT ?? 8191);
 const host = process.env.BRIDGE_HOST ?? '127.0.0.1';
@@ -148,7 +149,7 @@ function requestUrl(value) {
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Only HTTP and HTTPS URLs are supported');
   return url.href;
 }
-async function browse(entry, req, url, ms, setPhase) {
+async function browse(entry, req, url, ms, setPhase, diagnostics) {
   const context = entry.context;
   const cookies = inputCookies(req.cookies, url);
   if (cookies.length) await context.addCookies(cookies);
@@ -165,6 +166,7 @@ async function browse(entry, req, url, ms, setPhase) {
   }
   const page = await context.newPage();
   try {
+    diagnostics.attach(page, url);
     page.setDefaultTimeout(ms);
     page.setDefaultNavigationTimeout(ms);
     if (req.headers !== undefined) {
@@ -199,7 +201,7 @@ async function browse(entry, req, url, ms, setPhase) {
     setPhase('checking page');
     const turnstileToken = req.cmd === 'request.get' && req.tabs_till_verify !== undefined
       ? await resolveTurnstileToken(page, req.tabs_till_verify, state) : null;
-    const result = await collectPageResult(page, context, req, response, state, replay, recovery, setPhase);
+    const result = await collectPageResult(page, context, req, response, state, replay, recovery, setPhase, diagnostics.report);
     result.turnstile_token = turnstileToken;
     return result;
   } finally {
@@ -287,8 +289,11 @@ async function execute(req, signal) {
     throw new Error('Timeout while starting session');
   }
   const budget = new RequestBudget(remaining, signal);
+  const diagnostics = createDiagnostics(process.env.BRIDGE_DIAGNOSTICS === '1');
   let phase = 'waiting for session';
-  const setPhase = value => { phase = value; };
+  const setPhase = value => {
+    if (phase !== value) { phase = value; diagnostics.report('phase', { phase }); }
+  };
   const operation = entry.queue.then(() => {
     budget.check();
     if (entry.closed) throw new Error('Session closed');
@@ -296,12 +301,13 @@ async function execute(req, signal) {
     entry.busy = true;
     budget.own(() => remove(id, entry));
     setPhase('preparing page');
-    return browse(entry, req, url, budget.remaining(), setPhase).finally(() => { entry.busy = false; });
+    return browse(entry, req, url, budget.remaining(), setPhase, diagnostics).finally(() => { entry.busy = false; });
   });
   entry.queue = operation.catch(() => {});
   try {
     return { solution: await budget.run(() => operation) };
   } catch (error) {
+    diagnostics.report('finished', { result: error instanceof DeadlineError ? 'timeout' : 'error' });
     if (error instanceof DeadlineError) throw new Error(`${error.message} (${phase})`);
     throw error;
   } finally {

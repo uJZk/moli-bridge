@@ -8,6 +8,7 @@ services:
     environment:
       MOLI_MODE: both
       BRIDGE_MAX_SESSIONS: ${BRIDGE_MAX_SESSIONS:-4}
+      BRIDGE_DIAGNOSTICS: ${BRIDGE_DIAGNOSTICS:-0}
       CDP_MAX_BROWSERS: ${CDP_MAX_BROWSERS:-4}
     ports:
       - '127.0.0.1:${BRIDGE_PORT:-8191}:8191'

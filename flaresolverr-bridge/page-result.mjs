@@ -54,12 +54,14 @@ export async function navigateInitial(page, url, timeout, state) {
   }
 }
 
-export async function collectPageResult(page, context, req, initialResponse, state, replay, recovery, setPhase = () => {}) {
+export async function collectPageResult(page, context, req, initialResponse, state, replay, recovery, setPhase = () => {}, report = () => {}) {
   let waited = false;
   let nextVerify = 0;
   let stableDocument;
   let waitedForLoadGeneration;
   let phaseGeneration;
+  let challengeGeneration;
+  let lastClearance;
   // TRAWL challengeWait.ts requires two normal observations after a wall.
   let challengeSeen = false;
   let inactiveSamples = 0;
@@ -123,12 +125,21 @@ export async function collectPageResult(page, context, req, initialResponse, sta
       if (wafAction === 'captcha') throw new Error('The site requires an AWS WAF CAPTCHA');
       if (challenged) {
         setPhase('waiting for challenge clearance');
+        if (challengeGeneration !== generation) {
+          challengeGeneration = generation;
+          report('challenge', { cloudflareHeader: hasCloudflareChallengeHeader(headers), cloudflareTitle: isCloudflareChallengeTitle(title), status });
+        }
         stableDocument = undefined;
         const candidate = hasCloudflareChallengeHeader(headers) ? recovery?.cloudflare
           : dataDomeHeader ? (html && hasDataDomeDeviceCheck(html) ? recovery?.dataDome : undefined)
           : ddosGuard ? recovery?.ddosGuard : isCloudflareChallengeTitle(title) ? recovery?.cloudflare : undefined;
         if (candidate) {
           const ready = await candidate.ready(page.url(), context);
+          const clearanceObserved = Boolean(candidate.observed);
+          if (lastClearance !== clearanceObserved) {
+            lastClearance = clearanceObserved;
+            report('clearance', { newCookieObserved: clearanceObserved });
+          }
           if (state.pending || generation !== state.generation) continue;
           if (ready) {
             // At most one recovery across all challenge types per request.
@@ -147,9 +158,10 @@ export async function collectPageResult(page, context, req, initialResponse, sta
           // A fresh check is required after any interaction or navigation.
           nextVerify = Date.now() + 5000;
           const isCurrent = () => !state.pending && generation === state.generation;
-          if (!await clickChallengeFrame(page, isCurrent) && !await clickClosedChallengeFrame(page, isCurrent)) {
-            await clickAutomaticVerify(page, isCurrent);
-          }
+          const accessible = await clickChallengeFrame(page, isCurrent);
+          const closed = !accessible && await clickClosedChallengeFrame(page, isCurrent);
+          const automatic = !accessible && !closed && await clickAutomaticVerify(page, isCurrent);
+          report('verification', { accessibleControlFound: Boolean(accessible), closedControlFound: Boolean(closed), automaticAction: Boolean(automatic) });
         }
         await page.waitForTimeout(250);
         continue;
@@ -198,6 +210,7 @@ export async function collectPageResult(page, context, req, initialResponse, sta
       if (req.returnScreenshot) result.screenshot = (await page.screenshot()).toString('base64');
       if (state.pending || generation !== state.generation || url !== page.url()) continue;
       replay?.check();
+      report('finished', { result: 'ok', status: result.status });
       return result;
     } catch (error) {
       if (!isNavigationError(error)) throw error;
