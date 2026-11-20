@@ -5,6 +5,7 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 compose_file="$root/flaresolverr-bridge/compose.yaml"
 project=${MOLI_SMOKE_PROJECT:-moli-bridge-smoke-$$}
 export MOLI_BRIDGE_IMAGE=${MOLI_BRIDGE_IMAGE:-moli-bridge:local}
+export BRIDGE_DIAGNOSTICS=${BRIDGE_DIAGNOSTICS:-1}
 cleanup() { docker compose -p "$project" -f "$compose_file" down --remove-orphans; }
 trap cleanup EXIT HUP INT TERM
 docker compose -p "$project" -f "$compose_file" up -d --no-build
@@ -22,6 +23,16 @@ verify_role() {
     exit 1
   fi
   docker exec -i -e "MOLI_TEST_ROLE=$role" "$id" node --input-type=module < "$root/tools/flaresolverr-contract/check-container.mjs"
+  if [ "$role" = bridge ] && [ "$BRIDGE_DIAGNOSTICS" = 1 ]; then
+    logs=$(docker logs "$id" 2>&1 | grep 'bridge-diagnostic' || true)
+    printf '%s\n' "$logs" | grep -F '"event":"window-error","name":"TypeError"' >/dev/null
+    printf '%s\n' "$logs" | grep -F '"event":"window-error","name":"ReferenceError"' >/dev/null
+    if printf '%s\n' "$logs" | grep -F 'private_diagnostic_marker' >/dev/null; then
+      echo 'Diagnostic logs exposed the fixture exception message' >&2
+      exit 1
+    fi
+    echo 'PASS bridge diagnostics: synchronous and asynchronous script errors and redaction'
+  fi
 }
 for role in bridge cdp; do
   verify_role "$role"

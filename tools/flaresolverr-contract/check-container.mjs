@@ -4,11 +4,25 @@ import http from 'node:http';
 import { chromium } from '/app/node_modules/playwright-core/index.mjs';
 
 const role = process.env.MOLI_TEST_ROLE ?? process.env.MOLI_MODE ?? 'bridge';
+const containerZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+const defaultZone = ['UTC', 'Etc/UTC', 'Etc/GMT', 'GMT'].includes(containerZone) ? 'America/Los_Angeles' : containerZone;
 let clearanceHits = 0;
 let ddosClearanceHits = 0;
 const dataDomeHits = new Map();
 let disconnectStarted = false;
 const fixture = http.createServer((request, response) => {
+  if (request.url === '/inline-diagnostic-wall' || request.url === '/async-diagnostic-wall') {
+    response.writeHead(403, { 'content-type': 'text/html', 'cf-mitigated': 'challenge' });
+    const code = request.url.startsWith('/inline') ? 'throw new TypeError("private_diagnostic_marker")'
+      : 'setTimeout(()=>{throw new ReferenceError("private_diagnostic_marker")},250)';
+    response.end(`<title>Just a moment...</title><script>${code}</script>`);
+    return;
+  }
+  if (request.url === '/native-profile') {
+    response.writeHead(200, { 'content-type': 'text/html' });
+    response.end('<body><script>document.body.setAttribute("data-cpu", navigator.hardwareConcurrency);document.body.setAttribute("data-memory", navigator.deviceMemory);document.body.setAttribute("data-timezone", Intl.DateTimeFormat().resolvedOptions().timeZone)</script></body>');
+    return;
+  }
   if (request.url === '/stalled-image') { return; }
   if (request.url === '/stalled-resource-page' || request.url === '/stalled-resource-wall') {
     response.writeHead(200, { 'content-type': 'text/html', 'set-cookie': 'stalled=ok; Path=/' });
@@ -160,6 +174,11 @@ try {
     const second = await call({ cmd: 'sessions.create' });
     assert.equal(first.status, 'ok'); assert.equal(second.status, 'ok');
     try {
+      const profile = await call({ cmd: 'request.get', session: first.session, url: `${target}/native-profile` });
+      assert.equal(profile.status, 'ok', profile.message);
+      assert.match(profile.solution.response, /data-cpu="8"/);
+      assert.match(profile.solution.response, /data-memory="8"/);
+      assert.ok(profile.solution.response.includes(`data-timezone="${defaultZone}"`), profile.solution.response);
       const set = await call({ cmd: 'request.get', session: first.session, url: `${target}/set`, headers: { 'X-Test': 'ok' } });
       assert.equal(set.status, 'ok', set.message);
       assert.match(set.solution.response, /header=ok/);
@@ -176,6 +195,13 @@ try {
       const stalledWall = await call({ cmd: 'request.get', url: `${target}/stalled-resource-wall`, maxTimeout: 4000 });
       assert.equal(stalledWall.status, 'error', JSON.stringify(stalledWall));
       assert.match(stalledWall.message, /timeout.*challenge clearance/i);
+      if (process.env.BRIDGE_DIAGNOSTICS === '1') {
+        for (const path of ['/inline-diagnostic-wall', '/async-diagnostic-wall']) {
+          const diagnosticWall = await call({ cmd: 'request.get', url: `${target}${path}`, maxTimeout: 4000 });
+          assert.equal(diagnosticWall.status, 'error', JSON.stringify(diagnosticWall));
+          assert.match(diagnosticWall.message, /timeout.*challenge clearance/i);
+        }
+      }
       const post = await call({ cmd: 'request.post', session: first.session, url: `${target}/post`, postData: 'answer=test' });
       assert.equal(post.status, 'ok', post.message);
       assert.match(post.solution.response, /post=answer=test/);
@@ -325,6 +351,8 @@ try {
       await page.goto(target);
       assert.equal(await page.evaluate(() => navigator.userAgent), 'RSSHub-container-test');
       assert.equal(await page.evaluate(() => navigator.webdriver), false);
+      assert.equal(await page.evaluate(() => navigator.hardwareConcurrency), 8);
+      assert.equal(await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone), defaultZone);
       console.log('PASS CDP container: RSSHub-style direct WebSocket launch');
     } finally { await rsshub.close(); }
   } else throw new Error('Unknown role');

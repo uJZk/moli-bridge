@@ -8,6 +8,7 @@ import { parseProfile } from './cdp-profile.mjs';
 import { translateLaunchParams } from './rsshub-launch.mjs';
 import { listeningAddress } from './moli-listen.mjs';
 import { processLimit } from './process-limit.mjs';
+import { backendEnvironment } from './backend-env.mjs';
 
 const host = process.env.CDP_HOST ?? '127.0.0.1';
 const port = Number(process.env.CDP_PORT ?? 9222);
@@ -50,7 +51,7 @@ async function start(profile, signal) {
   else if (profile['proxy-bypass']) args.push('--http-no-proxy', profile['proxy-bypass']);
   try {
     const child = spawn(moli, args, {
-      env: { ...process.env, RUST_LOG: 'info', ...(profile.timezone ? { TZ: profile.timezone } : {}) }, stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...backendEnvironment(), RUST_LOG: 'info', ...(profile.timezone ? { TZ: profile.timezone } : {}) }, stdio: ['ignore', 'pipe', 'pipe'],
     });
     entry.child = child;
     child.once('exit', () => close(entry));

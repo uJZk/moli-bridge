@@ -376,7 +376,7 @@ fn zhihu_bot_detection_harness_fixture_matches_stable_moli_baseline() {
         serde_json::json!(["en-US", "en"])
     );
     assert_eq!(value["navigatorProfile"]["webdriver"], false);
-    assert_eq!(value["navigatorProfile"]["hardwareConcurrency"], 4);
+    assert_eq!(value["navigatorProfile"]["hardwareConcurrency"], 8);
     assert_eq!(value["navigatorProfile"]["maxTouchPoints"], 0);
     assert_eq!(value["navigatorProfile"]["deviceMemory"], 8);
     assert_eq!(value["navigatorProfile"]["pdfViewerEnabled"], true);

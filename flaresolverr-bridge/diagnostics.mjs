@@ -13,7 +13,7 @@ export function createDiagnostics(enabled, write = line => console.error(line), 
     if (count++ >= 200) return;
     write(JSON.stringify({ component: 'bridge-diagnostic', id, elapsedMs: now() - start, event, ...details }));
   }
-  function attach(page, targetUrl) {
+  async function attach(page, targetUrl) {
     const targetOrigin = new URL(targetUrl).origin;
     function location(value) {
       try {
@@ -47,6 +47,29 @@ export function createDiagnostics(enabled, write = line => console.error(line), 
       catch { /* Diagnostics must not interrupt browsing. */ }
     });
     page.on('pageerror', error => report('page-error', { name: errorNames.has(error?.name) ? error.name : 'Other' }));
+    // Moli currently dispatches inline classic-script failures to window.onerror
+    // without always emitting CDP Runtime.exceptionThrown. Observe that error
+    // event from document start, and transport only its allowlisted name.
+    const marker = randomUUID();
+    page.on('console', message => {
+      try {
+        if (message.type() !== 'error') return;
+        const text = message.text();
+        if (!text.startsWith(`${marker}:`)) return;
+        const name = text.slice(marker.length + 1);
+        report('window-error', { name: errorNames.has(name) ? name : 'Other' });
+      } catch { /* Diagnostics must not interrupt browsing. */ }
+    });
+    await page.addInitScript(({ marker }) => {
+      const emit = console.error.bind(console);
+      window.addEventListener('error', event => {
+        let name = 'Other';
+        try {
+          if (['Error', 'TypeError', 'ReferenceError', 'SyntaxError', 'RangeError', 'SecurityError'].includes(event.error?.name)) name = event.error.name;
+        } catch { /* An exception's name can itself be a hostile getter. */ }
+        emit(`${marker}:${name}`);
+      }, true);
+    }, { marker });
   }
   return { report, attach };
 }

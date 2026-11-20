@@ -12,6 +12,7 @@ import { processLimit } from './process-limit.mjs';
 import { waitForProcessExit } from './process-exit.mjs';
 import { normalizeProxy } from './proxy-url.mjs';
 import { createDiagnostics } from './diagnostics.mjs';
+import { backendEnvironment } from './backend-env.mjs';
 
 const port = Number(process.env.BRIDGE_PORT ?? 8191);
 const host = process.env.BRIDGE_HOST ?? '127.0.0.1';
@@ -81,7 +82,7 @@ async function launch(entry, proxy, ms) {
   const args = ['serve', '--host', '127.0.0.1', '--port', '0', '--layout', '--resource'];
   if (proxy) args.push('--http-proxy', proxy, '--http-no-proxy', '');
   if (userAgent) args.push('--user-agent', userAgent);
-  const env = { ...process.env, RUST_LOG: 'info' };
+  const env = { ...backendEnvironment(), RUST_LOG: 'info' };
   // Ambient proxy settings should never silently override the requested proxy.
   for (const key of ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy']) delete env[key];
   const child = spawn(moli, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -166,7 +167,7 @@ async function browse(entry, req, url, ms, setPhase, diagnostics) {
   }
   const page = await context.newPage();
   try {
-    diagnostics.attach(page, url);
+    await diagnostics.attach(page, url);
     page.setDefaultTimeout(ms);
     page.setDefaultNavigationTimeout(ms);
     if (req.headers !== undefined) {

@@ -3570,7 +3570,7 @@ async fn worker_navigator_query_overrides_are_independent_of_the_page() {
             );
         }
     }
-    for (id, session, expected) in [(99010, None, 2), (99011, Some(worker.as_str()), 4)] {
+    for (id, session, expected) in [(99010, None, 2), (99011, Some(worker.as_str()), 8)] {
         let mut request = json!({"id":id,"method":"Runtime.evaluate","params":{"expression":"navigator.hardwareConcurrency","returnByValue":true}});
         if let Some(session) = session {
             request["sessionId"] = json!(session);

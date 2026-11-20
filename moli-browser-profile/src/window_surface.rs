@@ -56,7 +56,7 @@ pub const DEFAULT_WINDOW_SURFACE_PROFILE: WindowSurfaceProfile = WindowSurfacePr
     user_agent: DEFAULT_USER_AGENT,
     platform: DEFAULT_NAVIGATOR_PLATFORM,
     language: "en-US",
-    hardware_concurrency: 4.0,
+    hardware_concurrency: 8.0,
     max_touch_points: 0.0,
     inner_width: 1920.0,
     inner_height: 1080.0,
@@ -236,7 +236,7 @@ mod tests {
             DEFAULT_NAVIGATOR_PLATFORM
         );
         assert_eq!(DEFAULT_WINDOW_SURFACE_PROFILE.language, "en-US");
-        assert_eq!(DEFAULT_WINDOW_SURFACE_PROFILE.hardware_concurrency, 4.0);
+        assert_eq!(DEFAULT_WINDOW_SURFACE_PROFILE.hardware_concurrency, 8.0);
         assert_eq!(DEFAULT_WINDOW_SURFACE_PROFILE.max_touch_points, 0.0);
         assert_eq!(DEFAULT_WINDOW_SURFACE_PROFILE.inner_width, 1920.0);
         assert_eq!(DEFAULT_WINDOW_SURFACE_PROFILE.inner_height, 1080.0);

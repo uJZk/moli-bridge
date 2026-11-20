@@ -6333,7 +6333,7 @@ async fn window_host_globals_expose_aliases_performance_and_visual_viewport() ->
         page.serialize_html_async()
             .await
             .unwrap()
-            .contains("data-navigator-hardware-concurrency=\"4\"")
+            .contains("data-navigator-hardware-concurrency=\"8\"")
     );
     assert!(
         page.serialize_html_async()
