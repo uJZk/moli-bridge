@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { chromium } from 'playwright-core';
 import { listeningAddress } from './moli-listen.mjs';
 import { collectPageResult, navigateInitial, observeNavigation } from './page-result.mjs';
-import { RequestBudget, RequestCancelledError } from './upstream/request-budget.mjs';
+import { DeadlineError, RequestBudget, RequestCancelledError } from './upstream/request-budget.mjs';
 import { PostReplay } from './upstream/post-replay.mjs';
 import { resolveTurnstileToken } from './upstream/turnstile-token.mjs';
 import { ClearanceRecovery } from './upstream/trawl-clearance-recovery.mjs';
@@ -148,7 +148,7 @@ function requestUrl(value) {
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Only HTTP and HTTPS URLs are supported');
   return url.href;
 }
-async function browse(entry, req, url, ms) {
+async function browse(entry, req, url, ms, setPhase) {
   const context = entry.context;
   const cookies = inputCookies(req.cookies, url);
   if (cookies.length) await context.addCookies(cookies);
@@ -194,10 +194,12 @@ async function browse(entry, req, url, ms) {
       });
     }
     const state = observeNavigation(page);
+    setPhase('waiting for initial navigation');
     const response = await navigateInitial(page, url, ms, state);
+    setPhase('checking page');
     const turnstileToken = req.cmd === 'request.get' && req.tabs_till_verify !== undefined
       ? await resolveTurnstileToken(page, req.tabs_till_verify, state) : null;
-    const result = await collectPageResult(page, context, req, response, state, replay, recovery);
+    const result = await collectPageResult(page, context, req, response, state, replay, recovery, setPhase);
     result.turnstile_token = turnstileToken;
     return result;
   } finally {
@@ -285,17 +287,23 @@ async function execute(req, signal) {
     throw new Error('Timeout while starting session');
   }
   const budget = new RequestBudget(remaining, signal);
+  let phase = 'waiting for session';
+  const setPhase = value => { phase = value; };
   const operation = entry.queue.then(() => {
     budget.check();
     if (entry.closed) throw new Error('Session closed');
     // Retire an active process on timeout; a request still queued owns nothing.
     entry.busy = true;
     budget.own(() => remove(id, entry));
-    return browse(entry, req, url, budget.remaining()).finally(() => { entry.busy = false; });
+    setPhase('preparing page');
+    return browse(entry, req, url, budget.remaining(), setPhase).finally(() => { entry.busy = false; });
   });
   entry.queue = operation.catch(() => {});
   try {
     return { solution: await budget.run(() => operation) };
+  } catch (error) {
+    if (error instanceof DeadlineError) throw new Error(`${error.message} (${phase})`);
+    throw error;
   } finally {
     budget.dispose();
     if (temporary) await remove(id, entry);

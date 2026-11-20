@@ -9,6 +9,12 @@ let ddosClearanceHits = 0;
 const dataDomeHits = new Map();
 let disconnectStarted = false;
 const fixture = http.createServer((request, response) => {
+  if (request.url === '/stalled-image') { return; }
+  if (request.url === '/stalled-resource-page' || request.url === '/stalled-resource-wall') {
+    response.writeHead(200, { 'content-type': 'text/html', 'set-cookie': 'stalled=ok; Path=/' });
+    response.end(`<title>${request.url.endsWith('wall') ? 'Just a moment...' : 'Ready'}</title><body>page available<img src="/stalled-image"></body>`);
+    return;
+  }
   if (request.url === '/hold-disconnect') { disconnectStarted = true; return; }
   if (request.url === '/keyboard') {
     response.writeHead(200, { 'content-type': 'text/html' });
@@ -162,6 +168,14 @@ try {
       const b = await call({ cmd: 'request.get', session: second.session, url: `${target}/echo` });
       assert.match(a.solution.response, /container_test=retained/);
       assert.doesNotMatch(b.solution.response, /container_test=retained/);
+      const stalled = await call({ cmd: 'request.get', session: first.session, url: `${target}/stalled-resource-page`, maxTimeout: 8000 });
+      assert.equal(stalled.status, 'ok', stalled.message);
+      assert.equal(stalled.solution.status, 200);
+      assert.match(stalled.solution.response, /page available/);
+      assert.ok(stalled.solution.cookies.some(cookie => cookie.name === 'stalled' && cookie.value === 'ok'));
+      const stalledWall = await call({ cmd: 'request.get', url: `${target}/stalled-resource-wall`, maxTimeout: 4000 });
+      assert.equal(stalledWall.status, 'error', JSON.stringify(stalledWall));
+      assert.match(stalledWall.message, /timeout.*challenge clearance/i);
       const post = await call({ cmd: 'request.post', session: first.session, url: `${target}/post`, postData: 'answer=test' });
       assert.equal(post.status, 'ok', post.message);
       assert.match(post.solution.response, /post=answer=test/);

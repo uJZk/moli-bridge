@@ -95,6 +95,29 @@ test('propagates unrelated failures', async () => {
   await assert.rejects(collectPageResult(f.page, f.context, {}, null, f.state), /page closed/);
 });
 
+test('inspects a document when a subresource prevents the load event', async () => {
+  const f = fixture();
+  const states = [];
+  f.page.waitForLoadState = async (state, options) => {
+    states.push(state);
+    if (state === 'load') {
+      assert.equal(options.timeout, 2000);
+      const error = new Error('load timeout');
+      error.name = 'TimeoutError';
+      throw error;
+    }
+  };
+  const result = await collectPageResult(f.page, f.context, {}, f.response(200), f.state);
+  assert.equal(result.response, '<html>final</html>');
+  assert.deepEqual(states, ['domcontentloaded', 'load', 'domcontentloaded']);
+});
+
+test('does not ignore non-timeout errors while waiting for load', async () => {
+  const f = fixture();
+  f.page.waitForLoadState = async state => { if (state === 'load') throw new Error('page closed'); };
+  await assert.rejects(collectPageResult(f.page, f.context, {}, null, f.state), /page closed/);
+});
+
 test('waits for a started navigation and uses only its response', async () => {
   const f = fixture();
   const events = new EventEmitter();

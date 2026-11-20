@@ -45,7 +45,7 @@ export function observeNavigation(page) {
 export async function navigateInitial(page, url, timeout, state) {
   const before = state.navigationRequests;
   try {
-    return await page.goto(url, { waitUntil: 'load', timeout });
+    return await page.goto(url, { waitUntil: 'domcontentloaded', timeout });
   } catch (error) {
     if (!isNavigationError(error) && !/net::ERR_ABORTED|interrupted by another navigation/i.test(error?.message ?? '')) throw error;
     await page.waitForTimeout(50);
@@ -54,10 +54,12 @@ export async function navigateInitial(page, url, timeout, state) {
   }
 }
 
-export async function collectPageResult(page, context, req, initialResponse, state, replay, recovery) {
+export async function collectPageResult(page, context, req, initialResponse, state, replay, recovery, setPhase = () => {}) {
   let waited = false;
   let nextVerify = 0;
   let stableDocument;
+  let waitedForLoadGeneration;
+  let phaseGeneration;
   // TRAWL challengeWait.ts requires two normal observations after a wall.
   let challengeSeen = false;
   let inactiveSamples = 0;
@@ -74,10 +76,24 @@ export async function collectPageResult(page, context, req, initialResponse, sta
         continue;
       }
       if (state.pending) {
+        setPhase('waiting for navigation');
         await page.waitForTimeout(50);
         continue;
       }
-      await page.waitForLoadState('load');
+      if (phaseGeneration !== generation) {
+        phaseGeneration = generation;
+        setPhase('checking page');
+      }
+      await page.waitForLoadState('domcontentloaded');
+      // Nonessential resources can keep the load event pending indefinitely.
+      // Give them a short grace period once per document, then inspect the DOM
+      // and challenges under the same overall request deadline.
+      if (waitedForLoadGeneration !== generation) {
+        try { await page.waitForLoadState('load', { timeout: 2000 }); }
+        catch (error) { if (error?.name !== 'TimeoutError') throw error; }
+        if (state.pending || generation !== state.generation) continue;
+        waitedForLoadGeneration = generation;
+      }
       if (page.url().startsWith('chrome-error:')) throw new Error('Navigation failed: browser returned an error page');
       const title = await page.title();
       const response = state.response ?? initialResponse;
@@ -106,6 +122,7 @@ export async function collectPageResult(page, context, req, initialResponse, sta
       if (dataDomeBlocked) throw new Error('The site denied access (DataDome hard block)');
       if (wafAction === 'captcha') throw new Error('The site requires an AWS WAF CAPTCHA');
       if (challenged) {
+        setPhase('waiting for challenge clearance');
         stableDocument = undefined;
         const candidate = hasCloudflareChallengeHeader(headers) ? recovery?.cloudflare
           : dataDomeHeader ? (html && hasDataDomeDeviceCheck(html) ? recovery?.dataDome : undefined)
@@ -116,7 +133,7 @@ export async function collectPageResult(page, context, req, initialResponse, sta
           if (ready) {
             // At most one recovery across all challenge types per request.
             for (const item of Object.values(recovery)) item.markAttempted();
-            try { await page.goto(candidate.url, { waitUntil: 'load' }); }
+            try { await page.goto(candidate.url, { waitUntil: 'domcontentloaded' }); }
             catch (error) {
               if (!state.pending && generation === state.generation) throw error;
             }
@@ -138,6 +155,7 @@ export async function collectPageResult(page, context, req, initialResponse, sta
         continue;
       }
       nextVerify = 0;
+      setPhase('collecting page result');
       if (challengeSeen && ++inactiveSamples < 2) {
         await page.waitForTimeout(300);
         continue;
