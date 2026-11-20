@@ -15,6 +15,8 @@ export function createDiagnostics(enabled, write = line => console.error(line), 
   }
   async function attach(page, targetUrl) {
     const targetOrigin = new URL(targetUrl).origin;
+    const navigationIds = new WeakMap();
+    let nextNavigation = 0;
     function location(value) {
       try {
         const url = new URL(value);
@@ -26,13 +28,30 @@ export function createDiagnostics(enabled, write = line => console.error(line), 
       const value = request.resourceType();
       return resourceTypes.has(value) ? value : 'other';
     }
+    page.on('request', request => {
+      try {
+        if (!request.isNavigationRequest() || request.frame() !== page.mainFrame()) return;
+        const navigation = ++nextNavigation;
+        navigationIds.set(request, navigation);
+        // Read the actual request headers exposed by CDP, but retain and log
+        // only whether the named cookie was present and nonempty.
+        void request.allHeaders().then(headers => {
+          const cookie = headers.cookie?.split(';').map(part => part.trim())
+            .find(part => part.startsWith('cf_clearance='));
+          const clearance = cookie === undefined ? 'absent'
+            : cookie.slice('cf_clearance='.length) ? 'nonempty' : 'empty';
+          report('navigation-cookie', { navigation, clearance });
+        }).catch(() => report('navigation-cookie', { navigation, clearance: 'unavailable' }));
+      } catch { /* Diagnostics must not interrupt browsing. */ }
+    });
     page.on('response', response => {
       try {
         const request = response.request();
         const main = request.isNavigationRequest() && request.frame() === page.mainFrame();
         const where = location(response.url());
         if (main || (where === 'cloudflare-challenge' && response.status() >= 400)) {
-          report('response', { location: where, main, resource: type(request), status: response.status() });
+          report('response', { location: where, main, resource: type(request), status: response.status(),
+            ...(main ? { navigation: navigationIds.get(request) ?? null } : {}) });
         }
       } catch { /* Diagnostics must not interrupt browsing. */ }
     });

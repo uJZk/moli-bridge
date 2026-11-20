@@ -27,8 +27,10 @@ verify_role() {
     logs=$(docker logs "$id" 2>&1 | grep 'bridge-diagnostic' || true)
     printf '%s\n' "$logs" | grep -F '"event":"window-error","name":"TypeError"' >/dev/null
     printf '%s\n' "$logs" | grep -F '"event":"window-error","name":"ReferenceError"' >/dev/null
-    if printf '%s\n' "$logs" | grep -F 'private_diagnostic_marker' >/dev/null; then
-      echo 'Diagnostic logs exposed the fixture exception message' >&2
+    printf '%s\n' "$logs" | grep -F '"event":"navigation-cookie"' | grep -F '"clearance":"nonempty"' >/dev/null
+    printf '%s\n' "$logs" | grep -F '"event":"recovery-attempt","provider":"cloudflare"' >/dev/null
+    if printf '%s\n' "$logs" | grep -E 'private_diagnostic_marker|container-fresh' >/dev/null; then
+      echo 'Diagnostic logs exposed fixture content or a cookie value' >&2
       exit 1
     fi
     echo 'PASS bridge diagnostics: synchronous and asynchronous script errors and redaction'

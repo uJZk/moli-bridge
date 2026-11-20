@@ -296,8 +296,11 @@ test('DDoS-Guard recovery consumes the shared single-recovery allowance', async 
     dataDome: { markAttempted: () => { dataDomeUsed++; } },
   };
   f.page.goto = async url => { assert.equal(url, recovery.ddosGuard.url); f.navigate(); };
-  const result = await collectPageResult(f.page, f.context, {}, f.response(200), f.state, undefined, recovery);
+  const events = [];
+  const result = await collectPageResult(f.page, f.context, {}, f.response(200), f.state, undefined, recovery,
+    undefined, (name, details) => events.push({ name, ...details }));
   assert.equal(result.status, 201);
+  assert.ok(events.some(event => event.name === 'recovery-attempt' && event.provider === 'ddos-guard'));
   assert.equal(cloudflareUsed, 1);
   assert.equal(ddosUsed, 1);
   assert.equal(dataDomeUsed, 1);

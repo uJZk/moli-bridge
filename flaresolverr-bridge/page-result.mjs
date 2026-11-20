@@ -144,6 +144,9 @@ export async function collectPageResult(page, context, req, initialResponse, sta
           if (ready) {
             // At most one recovery across all challenge types per request.
             for (const item of Object.values(recovery)) item.markAttempted();
+            const provider = candidate === recovery.cloudflare ? 'cloudflare'
+              : candidate === recovery.dataDome ? 'datadome' : 'ddos-guard';
+            report('recovery-attempt', { provider });
             try { await page.goto(candidate.url, { waitUntil: 'domcontentloaded' }); }
             catch (error) {
               if (!state.pending && generation === state.generation) throw error;

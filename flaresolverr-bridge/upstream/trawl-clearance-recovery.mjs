@@ -5,7 +5,7 @@
 const key = cookie => JSON.stringify([cookie.name, cookie.domain, cookie.path, cookie.value]);
 
 export class ClearanceRecovery {
-  constructor(url, cookies, { now = Date.now, delay = 5000, matches = cookie => cookie.name === 'cf_clearance', fingerprint = key } = {}) {
+  constructor(url, cookies, { now = Date.now, delay = 5000, matches = cookie => cookie.name === 'cf_clearance' && Boolean(cookie.value), fingerprint = key } = {}) {
     this.url = url;
     this.origin = new URL(url).origin;
     this.matches = matches;

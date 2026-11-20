@@ -22,6 +22,16 @@ test('requires a new clearance cookie to remain stable before one recovery', asy
   assert.equal(await recovery.ready(url, context), false);
 });
 
+test('an empty Cloudflare clearance cookie cannot trigger recovery', async () => {
+  let now = 0;
+  const context = { cookies: async () => [cookie('')] };
+  const recovery = new ClearanceRecovery(url, [], { now: () => now });
+  assert.equal(await recovery.ready(url, context), false);
+  now = 6000;
+  assert.equal(await recovery.ready(url, context), false);
+  assert.equal(recovery.observed, undefined);
+});
+
 test('does not navigate for other origins and resets the timer when a cookie changes', async () => {
   let now = 0;
   let cookies = [cookie('one')];
